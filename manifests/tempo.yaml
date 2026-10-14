@@ -1,0 +1,21 @@
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoMonolithic
+metadata:
+  name: fraud-tracing
+  namespace: fraud-detection
+spec:
+  storage:
+    traces:
+      backend: pv
+      size: 5Gi
+  ingestion:
+    otlp:
+      grpc:
+        enabled: true
+      http:
+        enabled: true
+  jaegerui:
+    enabled: true
+    route:
+      enabled: true
+      termination: edge
