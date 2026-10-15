@@ -1,0 +1,300 @@
+# PIPELINE DEFINITION
+# Name: fraud-detection-pipeline
+# Description: Ingest -> train (+MLflow) -> register (+OTel/Tempo)
+# Inputs:
+#    mlflow_experiment: str [Default: 'fraud-detection']
+#    mlflow_tracking_uri: str
+#    model_name: str [Default: 'fraud-detection']
+#    model_version: str [Default: '1.0.0']
+#    otel_collector_endpoint: str [Default: 'fraud-otel-collector.fraud-detection.svc.cluster.local:4317']
+#    registry_server_address: str [Default: 'https://fraud-detection-registry-rest.apps.example.com']
+components:
+  comp-ingest-data:
+    executorLabel: exec-ingest-data
+    outputDefinitions:
+      artifacts:
+        output_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-save-and-register-model:
+    executorLabel: exec-save-and-register-model
+    inputDefinitions:
+      artifacts:
+        model_in:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        model_name:
+          parameterType: STRING
+        model_version:
+          parameterType: STRING
+        otel_collector_endpoint:
+          parameterType: STRING
+        registry_server_address:
+          parameterType: STRING
+  comp-train-model:
+    executorLabel: exec-train-model
+    inputDefinitions:
+      artifacts:
+        input_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        mlflow_experiment:
+          parameterType: STRING
+        mlflow_tracking_uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        model_out:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-ingest-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - ingest_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
+          \ 'scikit-learn==1.5.2'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef ingest_data(output_data: dsl.Output[dsl.Dataset]):\n    \"\"\"\
+          Block 1: Data ingestion. Generates synthetic transaction data.\"\"\"\n \
+          \   import pandas as pd\n    from sklearn.datasets import make_classification\n\
+          \n    feature_names = [\n        \"distance_from_last_transaction\",\n \
+          \       \"ratio_to_median_purchase_price\",\n        \"used_chip\",\n  \
+          \      \"used_pin_number\",\n        \"online_order\",\n        \"repeat_retailer\"\
+          ,\n    ]\n    X, y = make_classification(\n        n_samples=5000,\n   \
+          \     n_features=len(feature_names),\n        n_informative=4,\n       \
+          \ n_redundant=0,\n        weights=[0.97, 0.03],\n        class_sep=1.2,\n\
+          \        random_state=42,\n    )\n    df = pd.DataFrame(X, columns=feature_names)\n\
+          \    df[\"fraud\"] = y\n    df.to_csv(output_data.path, index=False)\n \
+          \   print(f\"Ingested {len(df)} rows, fraud rate {df['fraud'].mean():.2%}\"\
+          )\n\n"
+        image: python:3.11
+    exec-save-and-register-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - save_and_register_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'model-registry==0.2.21'\
+          \ 'opentelemetry-sdk==1.27.0' 'opentelemetry-exporter-otlp==1.27.0'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef save_and_register_model(\n    model_in: dsl.Input[dsl.Model],\n\
+          \    registry_server_address: str,\n    otel_collector_endpoint: str,\n\
+          \    model_name: str,\n    model_version: str,\n):\n    \"\"\"Block 3: Save/serve\
+          \ step - register the trained model in RHOAI Model\n    Registry, wrapped\
+          \ in an OpenTelemetry trace exported to Tempo.\"\"\"\n    from model_registry\
+          \ import ModelRegistry\n    from opentelemetry import trace\n    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter\
+          \ import OTLPSpanExporter\n    from opentelemetry.sdk.resources import Resource\n\
+          \    from opentelemetry.sdk.trace import TracerProvider\n    from opentelemetry.sdk.trace.export\
+          \ import BatchSpanProcessor\n\n    provider = TracerProvider(resource=Resource.create({\"\
+          service.name\": \"fraud-detection-pipeline\"}))\n    provider.add_span_processor(\n\
+          \        BatchSpanProcessor(OTLPSpanExporter(endpoint=otel_collector_endpoint,\
+          \ insecure=True))\n    )\n    trace.set_tracer_provider(provider)\n    tracer\
+          \ = trace.get_tracer(\"fraud-detection-pipeline\")\n\n    run_id = model_in.metadata.get(\"\
+          mlflow_run_id\", \"unknown\")\n    artifact_uri = model_in.metadata.get(\"\
+          mlflow_artifact_uri\", \"unknown\")\n\n    with tracer.start_as_current_span(\"\
+          save-and-register-model\") as span:\n        span.set_attribute(\"mlflow.run_id\"\
+          , run_id)\n        span.set_attribute(\"model.accuracy\", model_in.metadata.get(\"\
+          accuracy\", 0.0))\n\n        registry = ModelRegistry(server_address=registry_server_address,\
+          \ port=443, author=\"kfp-pipeline\")\n        version = registry.register_model(\n\
+          \            name=model_name,\n            uri=artifact_uri,\n         \
+          \   version=model_version,\n            model_format_name=\"sklearn\",\n\
+          \            model_format_version=\"1\",\n            metadata={\n     \
+          \           \"mlflow_run_id\": run_id,\n                \"accuracy\": model_in.metadata.get(\"\
+          accuracy\", 0.0),\n                \"precision\": model_in.metadata.get(\"\
+          precision\", 0.0),\n                \"recall\": model_in.metadata.get(\"\
+          recall\", 0.0),\n            },\n        )\n        print(f\"Registered\
+          \ model {model_name} version {version.id}\")\n\n    provider.shutdown()\n\
+          \n"
+        image: python:3.11
+    exec-train-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
+          \ 'scikit-learn==1.5.2' 'mlflow==3.14.0'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_model(\n    input_data: dsl.Input[dsl.Dataset],\n    model_out:\
+          \ dsl.Output[dsl.Model],\n    mlflow_tracking_uri: str,\n    mlflow_experiment:\
+          \ str,\n):\n    \"\"\"Block 2: Feature processing + split + model building\
+          \ + evaluation + MLflow logging.\"\"\"\n    import pickle\n\n    import\
+          \ mlflow\n    import mlflow.sklearn\n    import pandas as pd\n    from sklearn.linear_model\
+          \ import LogisticRegression\n    from sklearn.metrics import accuracy_score,\
+          \ precision_score, recall_score\n    from sklearn.model_selection import\
+          \ train_test_split\n    from sklearn.preprocessing import StandardScaler\n\
+          \n    feature_names = [\n        \"distance_from_last_transaction\",\n \
+          \       \"ratio_to_median_purchase_price\",\n        \"used_chip\",\n  \
+          \      \"used_pin_number\",\n        \"online_order\",\n        \"repeat_retailer\"\
+          ,\n    ]\n    df = pd.read_csv(input_data.path)\n    X, y = df[feature_names],\
+          \ df[\"fraud\"]\n    X_train, X_test, y_train, y_test = train_test_split(\n\
+          \        X, y, test_size=0.2, random_state=42, stratify=y\n    )\n    scaler\
+          \ = StandardScaler().fit(X_train)\n    X_train_s, X_test_s = scaler.transform(X_train),\
+          \ scaler.transform(X_test)\n\n    mlflow.set_tracking_uri(mlflow_tracking_uri)\n\
+          \    mlflow.set_experiment(mlflow_experiment)\n\n    with mlflow.start_run(run_name=\"\
+          kfp-pipeline-run\") as run:\n        model = LogisticRegression(max_iter=200,\
+          \ class_weight=\"balanced\")\n        model.fit(X_train_s, y_train)\n  \
+          \      preds = model.predict(X_test_s)\n        accuracy = accuracy_score(y_test,\
+          \ preds)\n        precision = precision_score(y_test, preds, zero_division=0)\n\
+          \        recall = recall_score(y_test, preds, zero_division=0)\n\n     \
+          \   mlflow.log_param(\"model_type\", \"logistic_regression\")\n        mlflow.log_param(\"\
+          class_weight\", \"balanced\")\n        mlflow.log_metric(\"accuracy\", accuracy)\n\
+          \        mlflow.log_metric(\"precision\", precision)\n        mlflow.log_metric(\"\
+          recall\", recall)\n        mlflow.sklearn.log_model(model, \"model\")\n\
+          \        run_id = run.info.run_id\n        artifact_uri = mlflow.get_artifact_uri(\"\
+          model\")\n\n    with open(model_out.path, \"wb\") as f:\n        pickle.dump({\"\
+          model\": model, \"scaler\": scaler}, f)\n\n    model_out.metadata[\"mlflow_run_id\"\
+          ] = run_id\n    model_out.metadata[\"mlflow_artifact_uri\"] = artifact_uri\n\
+          \    model_out.metadata[\"accuracy\"] = accuracy\n    model_out.metadata[\"\
+          precision\"] = precision\n    model_out.metadata[\"recall\"] = recall\n\
+          \    print(f\"Trained model: accuracy={accuracy:.4f} precision={precision:.4f}\
+          \ recall={recall:.4f}\")\n    print(f\"MLflow run: {run_id}\")\n\n"
+        image: python:3.11
+pipelineInfo:
+  description: Ingest -> train (+MLflow) -> register (+OTel/Tempo)
+  name: fraud-detection-pipeline
+root:
+  dag:
+    tasks:
+      ingest-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-ingest-data
+        taskInfo:
+          name: ingest-data
+      save-and-register-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-save-and-register-model
+        dependentTasks:
+        - train-model
+        inputs:
+          artifacts:
+            model_in:
+              taskOutputArtifact:
+                outputArtifactKey: model_out
+                producerTask: train-model
+          parameters:
+            model_name:
+              componentInputParameter: model_name
+            model_version:
+              componentInputParameter: model_version
+            otel_collector_endpoint:
+              componentInputParameter: otel_collector_endpoint
+            registry_server_address:
+              componentInputParameter: registry_server_address
+        taskInfo:
+          name: save-and-register-model
+      train-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-model
+        dependentTasks:
+        - ingest-data
+        inputs:
+          artifacts:
+            input_data:
+              taskOutputArtifact:
+                outputArtifactKey: output_data
+                producerTask: ingest-data
+          parameters:
+            mlflow_experiment:
+              componentInputParameter: mlflow_experiment
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+        taskInfo:
+          name: train-model
+  inputDefinitions:
+    parameters:
+      mlflow_experiment:
+        defaultValue: fraud-detection
+        isOptional: true
+        parameterType: STRING
+      mlflow_tracking_uri:
+        parameterType: STRING
+      model_name:
+        defaultValue: fraud-detection
+        isOptional: true
+        parameterType: STRING
+      model_version:
+        defaultValue: 1.0.0
+        isOptional: true
+        parameterType: STRING
+      otel_collector_endpoint:
+        defaultValue: fraud-otel-collector.fraud-detection.svc.cluster.local:4317
+        isOptional: true
+        parameterType: STRING
+      registry_server_address:
+        defaultValue: https://fraud-detection-registry-rest.apps.example.com
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.17.0

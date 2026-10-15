@@ -8,7 +8,10 @@ spec:
   source:
     repoURL: https://github.com/varunchach/fd_demo.git
     targetRevision: main
-    path: manifests
+    path: chart
+    helm:
+      valueFiles:
+        - values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: fraud-detection
@@ -17,4 +20,4 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-      - CreateNamespace=false
+      - CreateNamespace=true

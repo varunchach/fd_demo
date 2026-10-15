@@ -1,0 +1,5 @@
+apiVersion: v2
+name: fraud-detection-demo
+description: RHOAI 3.5 fraud-detection capability demo (Workbench, AI Pipelines, MLflow, Model Registry, Tempo/OpenTelemetry)
+version: 0.1.0
+appVersion: "1.0.0"

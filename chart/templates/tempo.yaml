@@ -1,13 +1,13 @@
 apiVersion: tempo.grafana.com/v1alpha1
 kind: TempoMonolithic
 metadata:
-  name: fraud-tracing
-  namespace: fraud-detection
+  name: {{ .Values.tempo.name }}
+  namespace: {{ .Release.Namespace }}
 spec:
   storage:
     traces:
       backend: pv
-      size: 5Gi
+      size: {{ .Values.tempo.storageSize }}
   ingestion:
     otlp:
       grpc:

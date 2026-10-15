@@ -1,0 +1,52 @@
+# Defaults for the fraud-detection-demo chart.
+# Override with: helm install fraud-detection-demo ./chart -n fraud-detection --create-namespace -f my-values.yaml
+
+# Git repo this chart lives in. The workbench clones it on startup so the
+# notebook/ and pipeline/ folders show up automatically - no manual git clone.
+git:
+  repoURL: https://github.com/varunchach/fd_demo.git
+  revision: main
+
+# Storage connections. Prerequisite: these two Secrets must already exist in
+# the release namespace (create them via RHOAI Dashboard -> Data Connections,
+# or the official tutorial's setup-s3 script). This chart does not provision
+# object storage itself.
+storage:
+  myStorageSecret: my-storage
+  pipelineArtifactsSecret: pipeline-artifacts
+
+workbench:
+  name: fraud-detection
+  image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
+  cpuRequest: "1"
+  memoryRequest: 2Gi
+  cpuLimit: "2"
+  memoryLimit: 4Gi
+  storageSize: 5Gi
+  # Must match an already-enabled MLflow instance name (cluster-scoped `MLflow` CR).
+  # Prerequisite: `oc get mlflow` should show one Available instance.
+  mlflowInstanceName: mlflow
+
+pipelines:
+  dspaName: pipelines-definition
+  s3Host: s4.fraud-detection.svc.cluster.local:7480
+  s3Scheme: http
+  s3Bucket: pipeline-artifacts
+
+tempo:
+  name: fraud-tracing
+  storageSize: 5Gi
+
+otel:
+  name: fraud-otel
+  tempoEndpoint: tempo-fraud-tracing:4317
+
+modelRegistry:
+  enabled: true
+  name: fraud-detection-registry
+  # Model registries live in a shared, separate namespace, not the project namespace.
+  namespace: rhoai-model-registries
+  database: model_registry
+  username: registryuser
+  # Override this in production - do not commit real passwords to git.
+  password: "change-me-fraud-registry-pw"

@@ -1,0 +1,40 @@
+{{- if .Values.modelRegistry.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.modelRegistry.name }}-db
+  namespace: {{ .Values.modelRegistry.namespace }}
+type: Opaque
+stringData:
+  password: {{ .Values.modelRegistry.password | quote }}
+---
+apiVersion: modelregistry.opendatahub.io/v1beta1
+kind: ModelRegistry
+metadata:
+  name: {{ .Values.modelRegistry.name }}
+  namespace: {{ .Values.modelRegistry.namespace }}
+spec:
+  postgres:
+    generateDeployment: true
+    database: {{ .Values.modelRegistry.database }}
+    username: {{ .Values.modelRegistry.username }}
+    passwordSecret:
+      name: {{ .Values.modelRegistry.name }}-db
+      key: password
+---
+# Grants the workbench's ServiceAccount access to this registry instance
+# (model registries use a per-registry Role; subjects must be added explicitly).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.workbench.name }}-registry-access
+  namespace: {{ .Values.modelRegistry.namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.workbench.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: registry-user-{{ .Values.modelRegistry.name }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

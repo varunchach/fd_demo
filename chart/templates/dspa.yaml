@@ -1,0 +1,23 @@
+apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
+kind: DataSciencePipelinesApplication
+metadata:
+  name: {{ .Values.pipelines.dspaName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  dspVersion: v2
+  apiServer:
+    deploy: true
+  persistenceAgent:
+    deploy: true
+  mlmd:
+    deploy: true
+  objectStorage:
+    externalStorage:
+      host: {{ .Values.pipelines.s3Host }}
+      scheme: {{ .Values.pipelines.s3Scheme }}
+      bucket: {{ .Values.pipelines.s3Bucket }}
+      secure: false
+      s3CredentialsSecret:
+        secretName: {{ .Values.storage.pipelineArtifactsSecret }}
+        accessKey: AWS_ACCESS_KEY_ID
+        secretKey: AWS_SECRET_ACCESS_KEY

@@ -1,8 +1,8 @@
 apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
 metadata:
-  name: fraud-otel
-  namespace: fraud-detection
+  name: {{ .Values.otel.name }}
+  namespace: {{ .Release.Namespace }}
 spec:
   mode: deployment
   config:
@@ -17,7 +17,7 @@ spec:
       batch: {}
     exporters:
       otlp/tempo:
-        endpoint: tempo-fraud-tracing:4317
+        endpoint: {{ .Values.otel.tempoEndpoint }}
         tls:
           insecure: true
     service:
