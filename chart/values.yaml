@@ -33,6 +33,13 @@ pipelines:
   s3Scheme: http
   s3Bucket: pipeline-artifacts
 
+featureStore:
+  enabled: true
+  name: fraud-feature-store
+  # Internal service DNS for the Feast online feature server (REST API),
+  # named "feast-<featureStore.name>-online" by the Feast operator.
+  onlineServerHost: feast-fraud-feature-store-online
+
 tempo:
   name: fraud-tracing
   storageSize: 5Gi

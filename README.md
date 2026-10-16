@@ -2,15 +2,17 @@
 
 A simple, self-contained fraud-detection capability demo for Red Hat OpenShift AI 3.5.
 No deep learning, no external datasets — synthetic data, a scikit-learn model,
-and the platform wired around it: MLflow, AI Pipelines, Model Registry,
-OpenTelemetry/Tempo, and Argo CD.
+and the platform wired around it: Feature Store, MLflow, AI Pipelines, Model
+Registry, OpenTelemetry/Tempo, and Argo CD.
 
 ```
-notebook/   fraud_detection.ipynb  - ingest -> process -> split -> train -> evaluate -> MLflow
-pipeline/   pipeline.py            - same 3 steps as a KFP pipeline (ingest / train+MLflow / register+OTel)
-            pipeline.yaml          - compiled pipeline, ready to import
-chart/      Helm chart             - deploys the workbench, DSPA, Tempo, OTel Collector, Model Registry
-argocd/     application.yaml      - Argo CD Application pointing at chart/
+feature_repo/  features.py, feature_store.yaml  - Feast feature definitions (the Feature Store's source of truth)
+               generate_data.py, data/           - synthetic transaction data the feature store serves
+notebook/      fraud_detection.ipynb  - retrieve from Feature Store -> process -> split -> train -> evaluate -> MLflow
+pipeline/      pipeline.py            - same steps as a KFP pipeline (retrieve / train+MLflow / register+OTel)
+               pipeline.yaml          - compiled pipeline, ready to import
+chart/         Helm chart             - deploys the workbench, DSPA, FeatureStore, Tempo, OTel Collector, Model Registry
+argocd/        application.yaml      - Argo CD Application pointing at chart/
 ```
 
 ## Prerequisites (one-time, cluster admin)
@@ -42,8 +44,17 @@ helm install fraud-detection-demo ./chart -n fraud-detection --create-namespace
 ```
 
 That's it — this creates the workbench (which auto-clones this repo), the
-pipeline server, Tempo, the OpenTelemetry Collector, and a Model Registry
-instance. Follow the printed NOTES for what to check next.
+pipeline server, the Feature Store, Tempo, the OpenTelemetry Collector, and a
+Model Registry instance. Follow the printed NOTES for what to check next.
+
+The `FeatureStore` CR clones this same repo's `feature_repo/` folder, runs
+`feast apply` to register the entity/feature view, and materializes the data
+into its online store automatically — no separate step needed. Both the
+notebook and the pipeline then *retrieve* feature values from it via Feast's
+REST API (`http://feast-fraud-feature-store-online.<namespace>.svc.cluster.local:443/get-online-features`)
+rather than generating data ad hoc — that's the actual "feature store"
+capability being demonstrated, not just the CR existing alongside everything
+else.
 
 ## Run the pipeline
 
@@ -55,7 +66,9 @@ python pipeline/pipeline.py
 Import `pipeline/pipeline.yaml` via RHOAI Dashboard -> Pipelines -> Import
 pipeline, then Actions -> Create run. Set the `mlflow_tracking_uri` parameter
 to your dashboard's MLflow URL (shown in the workbench's `MLFLOW_TRACKING_URI`
-env var) and `registry_server_address` to your Model Registry's route.
+env var), `registry_server_address` to your Model Registry's route, and
+`feast_online_server_url` to the Feature Store's online server service
+(defaults already match this chart's default names/namespace).
 
 ## GitOps (optional)
 

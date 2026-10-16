@@ -1,0 +1,21 @@
+{{- if .Values.featureStore.enabled }}
+apiVersion: feast.dev/v1
+kind: FeatureStore
+metadata:
+  name: {{ .Values.featureStore.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  feastProject: fraud_detection
+  feastProjectDir:
+    git:
+      url: {{ .Values.git.repoURL }}
+      ref: {{ .Values.git.revision }}
+      featureRepoPath: feature_repo
+  services:
+    onlineStore:
+      server: {}
+    offlineStore: {}
+    registry:
+      local: {}
+    ui: {}
+{{- end }}

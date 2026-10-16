@@ -1,7 +1,8 @@
 # PIPELINE DEFINITION
 # Name: fraud-detection-pipeline
-# Description: Ingest -> train (+MLflow) -> register (+OTel/Tempo)
+# Description: Feature store retrieval -> train (+MLflow) -> register (+OTel/Tempo)
 # Inputs:
+#    feast_online_server_url: str [Default: 'http://feast-fraud-feature-store-online.fraud-detection.svc.cluster.local:443']
 #    mlflow_experiment: str [Default: 'fraud-detection']
 #    mlflow_tracking_uri: str
 #    model_name: str [Default: 'fraud-detection']
@@ -9,8 +10,16 @@
 #    otel_collector_endpoint: str [Default: 'fraud-otel-collector.fraud-detection.svc.cluster.local:4317']
 #    registry_server_address: str [Default: 'https://fraud-detection-registry-rest.apps.example.com']
 components:
-  comp-ingest-data:
-    executorLabel: exec-ingest-data
+  comp-fetch-features-from-store:
+    executorLabel: exec-fetch-features-from-store
+    inputDefinitions:
+      parameters:
+        feast_online_server_url:
+          parameterType: STRING
+        num_entities:
+          defaultValue: 5000.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
     outputDefinitions:
       artifacts:
         output_data:
@@ -55,22 +64,22 @@ components:
             schemaVersion: 0.0.1
 deploymentSpec:
   executors:
-    exec-ingest-data:
+    exec-fetch-features-from-store:
       container:
         args:
         - --executor_input
         - '{{$}}'
         - --function_to_execute
-        - ingest_data
+        - fetch_features_from_store
         command:
         - sh
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
-          \ 'scikit-learn==1.5.2'  &&  python3 -m pip install --quiet --no-warn-script-location\
-          \ 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
-          3.9\"' && \"$0\" \"$@\"\n"
+          \ 'scikit-learn==1.5.2' 'requests==2.32.3'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -82,19 +91,38 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef ingest_data(output_data: dsl.Output[dsl.Dataset]):\n    \"\"\"\
-          Block 1: Data ingestion. Generates synthetic transaction data.\"\"\"\n \
-          \   import pandas as pd\n    from sklearn.datasets import make_classification\n\
-          \n    feature_names = [\n        \"distance_from_last_transaction\",\n \
-          \       \"ratio_to_median_purchase_price\",\n        \"used_chip\",\n  \
-          \      \"used_pin_number\",\n        \"online_order\",\n        \"repeat_retailer\"\
-          ,\n    ]\n    X, y = make_classification(\n        n_samples=5000,\n   \
-          \     n_features=len(feature_names),\n        n_informative=4,\n       \
-          \ n_redundant=0,\n        weights=[0.97, 0.03],\n        class_sep=1.2,\n\
-          \        random_state=42,\n    )\n    df = pd.DataFrame(X, columns=feature_names)\n\
-          \    df[\"fraud\"] = y\n    df.to_csv(output_data.path, index=False)\n \
-          \   print(f\"Ingested {len(df)} rows, fraud rate {df['fraud'].mean():.2%}\"\
-          )\n\n"
+          \ *\n\ndef fetch_features_from_store(\n    output_data: dsl.Output[dsl.Dataset],\n\
+          \    feast_online_server_url: str,\n    num_entities: int = 5000,\n):\n\
+          \    \"\"\"Block 1: Feature retrieval. Pulls feature values for a known\
+          \ batch of\n    transaction_ids from the Feast online feature server (populated\
+          \ by the\n    FeatureStore CR's `feast apply` + materialize cycle - see\
+          \ feature_repo/),\n    instead of generating feature values ad hoc in the\
+          \ pipeline.\n\n    Labels (\"fraud\") aren't stored in the feature store\
+          \ - Feast holds model\n    *inputs*, not training labels, matching how a\
+          \ feature store is normally\n    used - so labels are regenerated here from\
+          \ the same seeded distribution\n    the feature store's own data was built\
+          \ from (see\n    feature_repo/generate_data.py), purely to keep this pipeline\
+          \ self-contained.\n    \"\"\"\n    import pandas as pd\n    import requests\n\
+          \    from sklearn.datasets import make_classification\n\n    feature_names\
+          \ = [\n        \"distance_from_last_transaction\",\n        \"ratio_to_median_purchase_price\"\
+          ,\n        \"used_chip\",\n        \"used_pin_number\",\n        \"online_order\"\
+          ,\n        \"repeat_retailer\",\n    ]\n\n    # Labels only (same seed as\
+          \ feature_repo/generate_data.py).\n    _, y = make_classification(\n   \
+          \     n_samples=num_entities,\n        n_features=len(feature_names),\n\
+          \        n_informative=4,\n        n_redundant=0,\n        weights=[0.97,\
+          \ 0.03],\n        class_sep=1.2,\n        random_state=42,\n    )\n\n  \
+          \  batch_size = 500\n    rows = []\n    for start in range(0, num_entities,\
+          \ batch_size):\n        entity_ids = list(range(start, min(start + batch_size,\
+          \ num_entities)))\n        response = requests.post(\n            f\"{feast_online_server_url}/get-online-features\"\
+          ,\n            json={\n                \"features\": [f\"fraud_features:{name}\"\
+          \ for name in feature_names],\n                \"entities\": {\"transaction_id\"\
+          : entity_ids},\n            },\n            timeout=30,\n        )\n   \
+          \     response.raise_for_status()\n        body = response.json()\n    \
+          \    batch_df = pd.DataFrame(dict(zip(body[\"metadata\"][\"feature_names\"\
+          ], [r[\"values\"] for r in body[\"results\"]])))\n        rows.append(batch_df)\n\
+          \n    df = pd.concat(rows, ignore_index=True)\n    df[\"fraud\"] = y\n \
+          \   df.to_csv(output_data.path, index=False)\n    print(f\"Retrieved {len(df)}\
+          \ rows from the feature store, fraud rate {df['fraud'].mean():.2%}\")\n\n"
         image: python:3.11
     exec-save-and-register-model:
       container:
@@ -216,18 +244,22 @@ deploymentSpec:
           \ recall={recall:.4f}\")\n    print(f\"MLflow run: {run_id}\")\n\n"
         image: python:3.11
 pipelineInfo:
-  description: Ingest -> train (+MLflow) -> register (+OTel/Tempo)
+  description: Feature store retrieval -> train (+MLflow) -> register (+OTel/Tempo)
   name: fraud-detection-pipeline
 root:
   dag:
     tasks:
-      ingest-data:
+      fetch-features-from-store:
         cachingOptions:
           enableCache: true
         componentRef:
-          name: comp-ingest-data
+          name: comp-fetch-features-from-store
+        inputs:
+          parameters:
+            feast_online_server_url:
+              componentInputParameter: feast_online_server_url
         taskInfo:
-          name: ingest-data
+          name: fetch-features-from-store
       save-and-register-model:
         cachingOptions:
           enableCache: true
@@ -258,13 +290,13 @@ root:
         componentRef:
           name: comp-train-model
         dependentTasks:
-        - ingest-data
+        - fetch-features-from-store
         inputs:
           artifacts:
             input_data:
               taskOutputArtifact:
                 outputArtifactKey: output_data
-                producerTask: ingest-data
+                producerTask: fetch-features-from-store
           parameters:
             mlflow_experiment:
               componentInputParameter: mlflow_experiment
@@ -274,6 +306,10 @@ root:
           name: train-model
   inputDefinitions:
     parameters:
+      feast_online_server_url:
+        defaultValue: http://feast-fraud-feature-store-online.fraud-detection.svc.cluster.local:443
+        isOptional: true
+        parameterType: STRING
       mlflow_experiment:
         defaultValue: fraud-detection
         isOptional: true

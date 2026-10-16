@@ -1,5 +1,5 @@
-"""Fraud-detection KFP v2 pipeline: ingest -> train (+MLflow) -> save & register
-(+OpenTelemetry trace). Mirrors the notebook's steps as three pipeline blocks.
+"""Fraud-detection KFP v2 pipeline: retrieve features from the Feast feature
+store -> train (+MLflow) -> save & register (+OpenTelemetry trace).
 
 Compile with: python pipeline.py  (writes pipeline.yaml)
 """
@@ -15,10 +15,25 @@ FEATURE_NAMES = [
 ]
 
 
-@dsl.component(packages_to_install=["pandas==2.2.3", "scikit-learn==1.5.2"])
-def ingest_data(output_data: dsl.Output[dsl.Dataset]):
-    """Block 1: Data ingestion. Generates synthetic transaction data."""
+@dsl.component(packages_to_install=["pandas==2.2.3", "scikit-learn==1.5.2", "requests==2.32.3"])
+def fetch_features_from_store(
+    output_data: dsl.Output[dsl.Dataset],
+    feast_online_server_url: str,
+    num_entities: int = 5000,
+):
+    """Block 1: Feature retrieval. Pulls feature values for a known batch of
+    transaction_ids from the Feast online feature server (populated by the
+    FeatureStore CR's `feast apply` + materialize cycle - see feature_repo/),
+    instead of generating feature values ad hoc in the pipeline.
+
+    Labels ("fraud") aren't stored in the feature store - Feast holds model
+    *inputs*, not training labels, matching how a feature store is normally
+    used - so labels are regenerated here from the same seeded distribution
+    the feature store's own data was built from (see
+    feature_repo/generate_data.py), purely to keep this pipeline self-contained.
+    """
     import pandas as pd
+    import requests
     from sklearn.datasets import make_classification
 
     feature_names = [
@@ -29,8 +44,10 @@ def ingest_data(output_data: dsl.Output[dsl.Dataset]):
         "online_order",
         "repeat_retailer",
     ]
-    X, y = make_classification(
-        n_samples=5000,
+
+    # Labels only (same seed as feature_repo/generate_data.py).
+    _, y = make_classification(
+        n_samples=num_entities,
         n_features=len(feature_names),
         n_informative=4,
         n_redundant=0,
@@ -38,10 +55,28 @@ def ingest_data(output_data: dsl.Output[dsl.Dataset]):
         class_sep=1.2,
         random_state=42,
     )
-    df = pd.DataFrame(X, columns=feature_names)
+
+    batch_size = 500
+    rows = []
+    for start in range(0, num_entities, batch_size):
+        entity_ids = list(range(start, min(start + batch_size, num_entities)))
+        response = requests.post(
+            f"{feast_online_server_url}/get-online-features",
+            json={
+                "features": [f"fraud_features:{name}" for name in feature_names],
+                "entities": {"transaction_id": entity_ids},
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        body = response.json()
+        batch_df = pd.DataFrame(dict(zip(body["metadata"]["feature_names"], [r["values"] for r in body["results"]])))
+        rows.append(batch_df)
+
+    df = pd.concat(rows, ignore_index=True)
     df["fraud"] = y
     df.to_csv(output_data.path, index=False)
-    print(f"Ingested {len(df)} rows, fraud rate {df['fraud'].mean():.2%}")
+    print(f"Retrieved {len(df)} rows from the feature store, fraud rate {df['fraud'].mean():.2%}")
 
 
 @dsl.component(packages_to_install=["pandas==2.2.3", "scikit-learn==1.5.2", "mlflow==3.14.0"])
@@ -166,16 +201,17 @@ def save_and_register_model(
     provider.shutdown()
 
 
-@dsl.pipeline(name="fraud-detection-pipeline", description="Ingest -> train (+MLflow) -> register (+OTel/Tempo)")
+@dsl.pipeline(name="fraud-detection-pipeline", description="Feature store retrieval -> train (+MLflow) -> register (+OTel/Tempo)")
 def fraud_detection_pipeline(
     mlflow_tracking_uri: str,
     mlflow_experiment: str = "fraud-detection",
     registry_server_address: str = "https://fraud-detection-registry-rest.apps.example.com",
     otel_collector_endpoint: str = "fraud-otel-collector.fraud-detection.svc.cluster.local:4317",
+    feast_online_server_url: str = "http://feast-fraud-feature-store-online.fraud-detection.svc.cluster.local:443",
     model_name: str = "fraud-detection",
     model_version: str = "1.0.0",
 ):
-    ingest_task = ingest_data()
+    ingest_task = fetch_features_from_store(feast_online_server_url=feast_online_server_url)
 
     train_task = train_model(
         input_data=ingest_task.outputs["output_data"],
