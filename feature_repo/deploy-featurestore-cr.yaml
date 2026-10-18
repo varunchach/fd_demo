@@ -1,0 +1,30 @@
+# Standalone FeatureStore CR for the fraud-detection project - apply directly:
+#   oc apply -f deploy-featurestore-cr.yaml -n fraud-detection
+#
+# This clones feature_repo/ from this same git repo at startup, runs
+# `feast apply` to register the entity + feature view defined in features.py,
+# and materializes data/transactions.parquet into its online store.
+# No manual `feast apply`/`feast materialize` step needed - the operator does
+# both automatically on startup and on its reconcile cycle.
+#
+# Prerequisite: the `feastoperator` component must be Managed on the
+# DataScienceCluster (check: oc get dsc default-dsc -o jsonpath='{.spec.components.feastoperator}').
+apiVersion: feast.dev/v1
+kind: FeatureStore
+metadata:
+  name: fraud-feature-store
+  namespace: fraud-detection
+spec:
+  feastProject: fraud_detection
+  feastProjectDir:
+    git:
+      url: https://github.com/varunchach/fd_demo.git
+      ref: main
+      featureRepoPath: feature_repo
+  services:
+    onlineStore:
+      server: {}
+    offlineStore: {}
+    registry:
+      local: {}
+    ui: {}
