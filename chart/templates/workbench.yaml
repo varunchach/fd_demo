@@ -1,3 +1,4 @@
+{{- if .Values.workbench.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -35,6 +36,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: fraud-mlops
   annotations:
     opendatahub.io/mlflow-instance: {{ .Values.workbench.mlflowInstanceName }}
 spec:
@@ -49,10 +51,11 @@ spec:
             - -c
             - |
               set -e
-              if [ ! -d /opt/app-root/src/fd_demo ]; then
-                git clone --branch {{ .Values.git.revision }} {{ .Values.git.repoURL }} /opt/app-root/src/fd_demo
+              DEST=/opt/app-root/src/fd_demo
+              if [ ! -d "$DEST/.git" ]; then
+                git clone --branch {{ .Values.git.revision }} {{ .Values.git.repoURL }} "$DEST"
               else
-                echo "fd_demo already present, skipping clone"
+                echo "repo already present"
               fi
           volumeMounts:
             - name: workspace
@@ -81,3 +84,4 @@ spec:
         - name: workspace
           persistentVolumeClaim:
             claimName: {{ .Values.workbench.name }}-workspace
+{{- end }}

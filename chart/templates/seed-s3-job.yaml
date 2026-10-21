@@ -1,0 +1,60 @@
+{{- if .Values.seedJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fraud-mlops-seed-s3
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: fraud-mlops
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: {{ .Values.workbench.image }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.storage.myStorageSecret }}
+          env:
+            - name: S3_KEY
+              value: {{ .Values.seedJob.s3Key | quote }}
+            - name: S3_BUCKET
+              value: {{ .Values.pipelines.s3Bucket | quote }}
+            - name: S3_ENDPOINT
+              value: "{{ .Values.pipelines.s3Scheme }}://{{ .Values.pipelines.s3Host }}:{{ .Values.pipelines.s3Port }}"
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -e
+              pip install --quiet boto3==1.35.36 pandas==2.2.3 scikit-learn==1.5.2
+              python -c '
+              import os, io
+              import pandas as pd
+              import boto3
+              from sklearn.datasets import make_classification
+              names = ["distance_from_last_transaction","ratio_to_median_purchase_price","used_chip","used_pin_number","online_order","repeat_retailer"]
+              X, y = make_classification(n_samples=5000, n_features=len(names), n_informative=4, n_redundant=0, weights=[0.97, 0.03], class_sep=1.2, random_state=42)
+              df = pd.DataFrame(X, columns=names)
+              df["fraud"] = y
+              df["transaction_id"] = df.index
+              buf = io.BytesIO()
+              df.to_csv(buf, index=False)
+              buf.seek(0)
+              endpoint = os.environ["S3_ENDPOINT"] or os.environ.get("AWS_S3_ENDPOINT")
+              bucket = os.environ["S3_BUCKET"]
+              key = os.environ["S3_KEY"]
+              client = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"], aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"], region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+              try:
+                  client.head_bucket(Bucket=bucket)
+              except Exception:
+                  client.create_bucket(Bucket=bucket)
+              client.put_object(Bucket=bucket, Key=key, Body=buf.getvalue())
+              print("Seeded s3://%s/%s (%d rows)" % (bucket, key, len(df)))
+              '
+{{- end }}

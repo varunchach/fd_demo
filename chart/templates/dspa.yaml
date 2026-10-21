@@ -1,23 +1,38 @@
+{{- if .Values.pipelines.enabled }}
 apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
 kind: DataSciencePipelinesApplication
 metadata:
   name: {{ .Values.pipelines.dspaName }}
   namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: fraud-mlops
 spec:
   dspVersion: v2
   apiServer:
     deploy: true
+    enableSamplePipeline: false
+    pipelineStore: kubernetes
   persistenceAgent:
     deploy: true
-  mlmd:
+  scheduledWorkflow:
     deploy: true
+  database:
+    mariaDB:
+      deploy: true
+      pipelineDBName: fraud_mlops_pipelines
+      pvcSize: 10Gi
   objectStorage:
     externalStorage:
       host: {{ .Values.pipelines.s3Host }}
-      scheme: {{ .Values.pipelines.s3Scheme }}
+      port: {{ .Values.pipelines.s3Port | quote }}
       bucket: {{ .Values.pipelines.s3Bucket }}
-      secure: false
+      scheme: {{ .Values.pipelines.s3Scheme }}
+      region: {{ .Values.pipelines.s3Region }}
       s3CredentialsSecret:
         secretName: {{ .Values.storage.pipelineArtifactsSecret }}
         accessKey: AWS_ACCESS_KEY_ID
         secretKey: AWS_SECRET_ACCESS_KEY
+  mlflow:
+    integrationMode: AUTODETECT
+    injectUserEnvVars: true
+{{- end }}

@@ -1,24 +1,28 @@
-Fraud Detection demo deployed into namespace: {{ .Release.Namespace }}
+Fraud MLOps deployed in namespace: {{ .Release.Namespace }}
 
-Next steps:
-1. Wait for the workbench pod to be Running:
-   oc get pods -n {{ .Release.Namespace }} -l app={{ .Values.workbench.name }}
-2. Open it from the RHOAI Dashboard -> Workbenches -> {{ .Values.workbench.name }}.
-   The repo is already cloned at /opt/app-root/src/fd_demo.
+What was created:
+  - Pipeline server (DSPA): {{ .Values.pipelines.dspaName }}
 {{- if .Values.featureStore.enabled }}
-3. Wait for the Feature Store to apply its definitions:
-   oc get featurestore {{ .Values.featureStore.name }} -n {{ .Release.Namespace }} -o jsonpath='{.status.phase}'
-   (expect "Ready" - it clones this repo's feature_repo/ and runs `feast apply` automatically)
+  - Feature Store: {{ .Values.featureStore.name }}  (mode={{ .Values.featureStore.mode }})
 {{- end }}
-4. Open fd_demo/notebook/fraud_detection.ipynb and run it top to bottom.
-5. Check the MLflow run: Dashboard -> Develop & train -> Experiments (MLflow).
-6. Check pipeline runs: Dashboard -> Pipelines (DSPA: {{ .Values.pipelines.dspaName }}).
+{{- if .Values.workbench.enabled }}
+  - Workbench: {{ .Values.workbench.name }}  (repo auto-cloned)
+{{- end }}
 {{- if .Values.modelRegistry.enabled }}
-7. Check the registered model: Dashboard -> Model Registry -> {{ .Values.modelRegistry.name }}.
+  - Model Registry: {{ .Values.modelRegistry.name }} (ns {{ .Values.modelRegistry.namespace }})
 {{- end }}
-8. Check traces: Tempo Jaeger UI route in this namespace, service "fraud-detection-pipeline".
 
-Prerequisites this chart assumes are already in place (not created by this chart):
-- Secrets "{{ .Values.storage.myStorageSecret }}" and "{{ .Values.storage.pipelineArtifactsSecret }}" exist in this namespace
-- A cluster-scoped MLflow instance named "{{ .Values.workbench.mlflowInstanceName }}" is Available
-- DataScienceCluster components aipipelines/workbenches/modelregistry are Managed
+Demo flow:
+  1. Wait:  oc get pods -n {{ .Release.Namespace }}
+  2. Feature Store Ready:
+       oc get featurestore {{ .Values.featureStore.name }} -n {{ .Release.Namespace }}
+  3. Dashboard → Pipelines → Import pipeline/pipeline.yaml → Create run
+  4. Set run params: S3 keys from Secret {{ .Values.storage.myStorageSecret }},
+     feast_online_server_url, mlflow_tracking_uri
+  5. Check MLflow experiment "{{ .Values.workbench.mlflowInstanceName }}" / fraud-mlops
+  6. (Optional) Enable register_model=true + registry_server_address for Model Registry
+
+Prerequisites (must exist before sync):
+  - Secrets {{ .Values.storage.myStorageSecret }} and {{ .Values.storage.pipelineArtifactsSecret }}
+  - Cluster MLflow instance "{{ .Values.workbench.mlflowInstanceName }}" Available
+  - DSC components: aipipelines, feastoperator, mlflowoperator, modelregistry = Managed

@@ -13,6 +13,8 @@ kind: ModelRegistry
 metadata:
   name: {{ .Values.modelRegistry.name }}
   namespace: {{ .Values.modelRegistry.namespace }}
+  labels:
+    app.kubernetes.io/part-of: fraud-mlops
 spec:
   postgres:
     generateDeployment: true
@@ -21,9 +23,8 @@ spec:
     passwordSecret:
       name: {{ .Values.modelRegistry.name }}-db
       key: password
+{{- if .Values.workbench.enabled }}
 ---
-# Grants the workbench's ServiceAccount access to this registry instance
-# (model registries use a per-registry Role; subjects must be added explicitly).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -37,4 +38,5 @@ roleRef:
   kind: Role
   name: registry-user-{{ .Values.modelRegistry.name }}
   apiGroup: rbac.authorization.k8s.io
+{{- end }}
 {{- end }}

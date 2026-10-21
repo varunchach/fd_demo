@@ -1,0 +1,30 @@
+# Demo-cluster overrides (sandbox). Assumes:
+#   - namespace fraud-mlops
+#   - MinIO reachable at the host below (shared from credit-decisioning OR local)
+#   - Secrets my-storage + pipeline-artifacts already created (see scripts/setup-prereqs.sh)
+
+git:
+  repoURL: https://github.com/varunchach/fd_demo.git
+  revision: main
+
+pipelines:
+  # Point at the shared MinIO already running in credit-decisioning for this lab.
+  # Client clusters: change to your own MinIO/S3 endpoint.
+  # DSPA-managed MinIO in the shared credit-decisioning project (lab).
+  s3Host: minio-credit-decisioning-dspa.credit-decisioning.svc.cluster.local
+  s3Port: "9000"
+  s3Scheme: http
+  s3Bucket: pipeline-artifacts
+
+featureStore:
+  mode: local
+
+workbench:
+  enabled: true
+
+modelRegistry:
+  enabled: true
+  password: "demo-fraud-mlops-registry"
+
+seedJob:
+  enabled: true
