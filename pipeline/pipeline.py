@@ -61,8 +61,8 @@ def ingest_from_s3(
         print(f"Loaded s3://{s3_bucket}/{s3_key} ({len(df)} rows)")
     except ClientError:
         X, y = make_classification(
-            n_samples=5000, n_features=len(names), n_informative=4,
-            n_redundant=0, weights=[0.97, 0.03], class_sep=1.2, random_state=42,
+            n_samples=100, n_features=len(names), n_informative=4,
+            n_redundant=0, weights=[0.9, 0.1], class_sep=1.2, random_state=42,
         )
         df = pd.DataFrame(X, columns=names)
         df["fraud"] = y

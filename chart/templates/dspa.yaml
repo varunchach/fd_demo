@@ -16,8 +16,8 @@ spec:
   database:
     mariaDB:
       deploy: true
-      pipelineDBName: fraud_mlops
-      pvcSize: 10Gi
+      pipelineDBName: mlpipeline
+      pvcSize: 5Gi
   objectStorage:
     externalStorage:
       host: {{ .Values.pipelines.s3Host }}
