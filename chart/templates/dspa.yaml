@@ -18,7 +18,7 @@ spec:
     mariaDB:
       deploy: false
     externalDB:
-      host: fraud-mlops-db
+      host: fraud-mlops-db.fraud-mlops.svc.cluster.local
       port: "3306"
       username: mlpipeline
       pipelineDBName: mlpipeline
