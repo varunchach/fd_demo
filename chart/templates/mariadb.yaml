@@ -1,0 +1,59 @@
+# Simple demo MariaDB for the Pipeline Server (DSPA cannot use Postgres).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fraud-mlops-db
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  password: fraudmlops
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-mlops-db
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 3306
+      targetPort: 3306
+  selector:
+    app: fraud-mlops-db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-mlops-db
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-mlops-db
+  template:
+    metadata:
+      labels:
+        app: fraud-mlops-db
+    spec:
+      containers:
+        - name: mariadb
+          image: registry.redhat.io/rhel9/mariadb-105:latest
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: fraudmlops
+            - name: MYSQL_DATABASE
+              value: mlpipeline
+            - name: MYSQL_USER
+              value: mlpipeline
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fraud-mlops-db
+                  key: password
+          readinessProbe:
+            exec:
+              command: ["bash", "-c", "mysqladmin ping -h 127.0.0.1 -u mlpipeline -pfraudmlops --silent"]
+            initialDelaySeconds: 10
+            periodSeconds: 5

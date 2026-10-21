@@ -14,10 +14,17 @@ spec:
   scheduledWorkflow:
     deploy: true
   database:
+    # Use our dummy MariaDB — not the operator-managed one (avoids PVC grant issues).
     mariaDB:
-      deploy: true
+      deploy: false
+    externalDB:
+      host: fraud-mlops-db
+      port: "3306"
+      username: mlpipeline
       pipelineDBName: mlpipeline
-      pvcSize: 5Gi
+      passwordSecret:
+        name: fraud-mlops-db
+        key: password
   objectStorage:
     externalStorage:
       host: {{ .Values.pipelines.s3Host }}
