@@ -1,14 +1,20 @@
+import os
 from datetime import timedelta
 
 from feast import Entity, FeatureView, Field, FileSource
 from feast.types import Float32, Int64
 
+_bucket = os.environ.get("AWS_S3_BUCKET", "pipeline-artifacts")
+_prefix = os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/")
+_endpoint = os.environ.get("AWS_S3_ENDPOINT", "http://minio.fraud-detection.svc.cluster.local:9000")
+
 transaction = Entity(name="transaction_id", join_keys=["transaction_id"])
 
 transaction_source = FileSource(
     name="transaction_source",
-    path="data/transactions.parquet",
+    path=f"s3://{_bucket}/{_prefix}/transactions.parquet",
     timestamp_field="event_timestamp",
+    s3_endpoint_override=_endpoint,
 )
 
 fraud_features = FeatureView(

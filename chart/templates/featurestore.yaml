@@ -16,7 +16,17 @@ spec:
     noAuth: true
   services:
     onlineStore:
-      server: {}
+      server:
+        envFrom:
+          - secretRef:
+              name: {{ .Values.storage.pipelineArtifactsSecret }}
+        env:
+          - name: FEAST_S3_PREFIX
+            value: fraud-detection/features
+          - name: AWS_DEFAULT_REGION
+            value: us-east-1
+          - name: AWS_S3_FORCE_PATH_STYLE
+            value: "true"
     offlineStore: {}
     registry:
       local: {}

@@ -1,0 +1,35 @@
+# oc apply -f feature_repo/featurestore.yaml
+# After: Secret feast-s3 + Job seed-features-to-s3 succeeded
+apiVersion: feast.dev/v1
+kind: FeatureStore
+metadata:
+  name: fraud-feature-store
+  namespace: fraud-detection
+  labels:
+    feature-store-ui: enabled
+spec:
+  feastProject: fraud_detection
+  feastProjectDir:
+    git:
+      url: https://github.com/varunchach/fd_demo.git
+      ref: main
+      featureRepoPath: feature_repo
+  authz:
+    noAuth: true
+  services:
+    onlineStore:
+      server:
+        envFrom:
+          - secretRef:
+              name: feast-s3
+        env:
+          - name: FEAST_S3_PREFIX
+            value: fraud-detection/features
+          - name: AWS_DEFAULT_REGION
+            value: us-east-1
+          - name: AWS_S3_FORCE_PATH_STYLE
+            value: "true"
+    offlineStore: {}
+    registry:
+      local: {}
+    ui: {}

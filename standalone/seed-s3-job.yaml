@@ -1,0 +1,81 @@
+# Uploads a small transactions.parquet to S3 for Feast FileSource.
+# Prerequisite: Secret feast-s3 in fraud-detection with AWS_* keys.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-features-to-s3
+  namespace: fraud-detection
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: registry.access.redhat.com/ubi9/python-311:latest
+          envFrom:
+            - secretRef:
+                name: feast-s3
+          env:
+            - name: HOME
+              value: /tmp
+            - name: PIP_CACHE_DIR
+              value: /tmp/pip
+            - name: FEAST_S3_PREFIX
+              value: fraud-detection/features
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -e
+              pip install -q --user boto3==1.35.36 pandas==2.2.3 pyarrow==17.0.0 scikit-learn==1.5.2
+              export PATH="$HOME/.local/bin:$PATH"
+              python <<'PY'
+              import io, os
+              from datetime import datetime, timedelta, timezone
+              import boto3
+              import pandas as pd
+              from botocore.client import Config
+              from sklearn.datasets import make_classification
+
+              names = [
+                  "distance_from_last_transaction",
+                  "ratio_to_median_purchase_price",
+                  "used_chip",
+                  "used_pin_number",
+                  "online_order",
+                  "repeat_retailer",
+              ]
+              X, y = make_classification(
+                  n_samples=100, n_features=len(names), n_informative=4,
+                  n_redundant=0, weights=[0.9, 0.1], class_sep=1.2, random_state=42,
+              )
+              df = pd.DataFrame(X, columns=names)
+              df["fraud"] = y
+              df["transaction_id"] = df.index.astype("int64")
+              now = datetime.now(timezone.utc)
+              df["event_timestamp"] = [now - timedelta(minutes=(len(df) - i)) for i in range(len(df))]
+
+              endpoint = os.environ["AWS_S3_ENDPOINT"]
+              bucket = os.environ["AWS_S3_BUCKET"]
+              key = os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/") + "/transactions.parquet"
+
+              buf = io.BytesIO()
+              df.drop(columns=["fraud"]).to_parquet(buf, index=False)
+              buf.seek(0)
+
+              client = boto3.client(
+                  "s3",
+                  endpoint_url=endpoint,
+                  aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+                  aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+                  region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+                  config=Config(s3={"addressing_style": "path"}),
+              )
+              try:
+                  client.head_bucket(Bucket=bucket)
+              except Exception:
+                  client.create_bucket(Bucket=bucket)
+              client.put_object(Bucket=bucket, Key=key, Body=buf.getvalue())
+              print("Uploaded s3://%s/%s (%d rows)" % (bucket, key, len(df)))
+              PY

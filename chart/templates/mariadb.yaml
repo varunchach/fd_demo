@@ -1,8 +1,7 @@
-# Simple demo MariaDB for the Pipeline Server (DSPA cannot use Postgres).
 apiVersion: v1
 kind: Secret
 metadata:
-  name: fraud-mlops-db
+  name: fraud-db
   namespace: {{ .Release.Namespace }}
 type: Opaque
 stringData:
@@ -11,29 +10,29 @@ stringData:
 apiVersion: v1
 kind: Service
 metadata:
-  name: fraud-mlops-db
+  name: fraud-db
   namespace: {{ .Release.Namespace }}
 spec:
   ports:
     - port: 3306
       targetPort: 3306
   selector:
-    app: fraud-mlops-db
+    app: fraud-db
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fraud-mlops-db
+  name: fraud-db
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fraud-mlops-db
+      app: fraud-db
   template:
     metadata:
       labels:
-        app: fraud-mlops-db
+        app: fraud-db
     spec:
       containers:
         - name: mariadb
@@ -50,7 +49,7 @@ spec:
             - name: MYSQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: fraud-mlops-db
+                  name: fraud-db
                   key: password
           readinessProbe:
             exec:
