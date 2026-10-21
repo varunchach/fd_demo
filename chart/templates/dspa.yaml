@@ -1,11 +1,8 @@
-{{- if .Values.pipelines.enabled }}
 apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
 kind: DataSciencePipelinesApplication
 metadata:
   name: {{ .Values.pipelines.dspaName }}
   namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/part-of: fraud-mlops
 spec:
   dspVersion: v2
   apiServer:
@@ -19,7 +16,7 @@ spec:
   database:
     mariaDB:
       deploy: true
-      pipelineDBName: fraud_mlops_pipelines
+      pipelineDBName: fraud_mlops
       pvcSize: 10Gi
   objectStorage:
     externalStorage:
@@ -35,4 +32,3 @@ spec:
   mlflow:
     integrationMode: AUTODETECT
     injectUserEnvVars: true
-{{- end }}

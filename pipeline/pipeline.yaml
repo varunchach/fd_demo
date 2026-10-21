@@ -1,18 +1,17 @@
 # PIPELINE DEFINITION
 # Name: fraud-mlops-pipeline
-# Description: S3 ingest -> Feature Store processing -> Train + MLflow + Model Registry
+# Description: S3 -> Feature Store -> Train/MLflow/Registry
 # Inputs:
-#    aws_access_key_id: str [Default: '']
-#    aws_secret_access_key: str [Default: '']
-#    feast_online_server_url: str [Default: 'http://feast-fraud-feature-store-online.fraud-mlops.svc.cluster.local:80']
+#    aws_access_key_id: str
+#    aws_secret_access_key: str
+#    feast_online_server_url: str
 #    mlflow_experiment: str [Default: 'fraud-mlops']
-#    mlflow_tracking_uri: str [Default: 'https://mlflow.redhat-ods-applications.svc:8443/mlflow']
+#    mlflow_tracking_uri: str
 #    model_name: str [Default: 'fraud-detection']
 #    model_version: str [Default: '1.0.0']
-#    register_model: bool [Default: False]
 #    registry_server_address: str [Default: '']
-#    s3_bucket: str [Default: 'pipeline-artifacts']
-#    s3_endpoint: str [Default: 'http://minio.fraud-mlops.svc.cluster.local:9000']
+#    s3_bucket: str
+#    s3_endpoint: str
 #    s3_key: str [Default: 'fraud-mlops/raw/transactions.csv']
 components:
   comp-ingest-from-s3:
@@ -66,14 +65,16 @@ components:
         mlflow_tracking_uri:
           parameterType: STRING
         model_name:
+          defaultValue: fraud-detection
+          isOptional: true
           parameterType: STRING
         model_version:
-          parameterType: STRING
-        register_model:
-          defaultValue: true
+          defaultValue: 1.0.0
           isOptional: true
-          parameterType: BOOLEAN
+          parameterType: STRING
         registry_server_address:
+          defaultValue: ''
+          isOptional: true
           parameterType: STRING
     outputDefinitions:
       artifacts:
@@ -96,9 +97,9 @@ deploymentSpec:
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'boto3==1.35.36'\
-          \ 'pandas==2.2.3'  &&  python3 -m pip install --quiet --no-warn-script-location\
-          \ 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
-          3.9\"' && \"$0\" \"$@\"\n"
+          \ 'pandas==2.2.3' 'scikit-learn==1.5.2'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -112,15 +113,28 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef ingest_from_s3(\n    output_data: dsl.Output[dsl.Dataset],\n\
           \    s3_endpoint: str,\n    s3_bucket: str,\n    s3_key: str,\n    aws_access_key_id:\
-          \ str,\n    aws_secret_access_key: str,\n):\n    \"\"\"Step 1: Download\
-          \ raw training CSV from S3-compatible storage (MinIO).\"\"\"\n    import\
-          \ io\n\n    import boto3\n    import pandas as pd\n\n    client = boto3.client(\n\
-          \        \"s3\",\n        endpoint_url=s3_endpoint,\n        aws_access_key_id=aws_access_key_id,\n\
-          \        aws_secret_access_key=aws_secret_access_key,\n        region_name=\"\
-          us-east-1\",\n    )\n    obj = client.get_object(Bucket=s3_bucket, Key=s3_key)\n\
-          \    df = pd.read_csv(io.BytesIO(obj[\"Body\"].read()))\n    df.to_csv(output_data.path,\
-          \ index=False)\n    print(f\"Ingested {len(df)} rows from s3://{s3_bucket}/{s3_key}\"\
-          )\n\n"
+          \ str,\n    aws_secret_access_key: str,\n):\n    \"\"\"Step 1: Ingest raw\
+          \ transactions from S3. Creates object on first run.\"\"\"\n    import io\n\
+          \n    import boto3\n    import pandas as pd\n    from botocore.exceptions\
+          \ import ClientError\n    from sklearn.datasets import make_classification\n\
+          \n    names = [\n        \"distance_from_last_transaction\",\n        \"\
+          ratio_to_median_purchase_price\",\n        \"used_chip\",\n        \"used_pin_number\"\
+          ,\n        \"online_order\",\n        \"repeat_retailer\",\n    ]\n    client\
+          \ = boto3.client(\n        \"s3\",\n        endpoint_url=s3_endpoint,\n\
+          \        aws_access_key_id=aws_access_key_id,\n        aws_secret_access_key=aws_secret_access_key,\n\
+          \        region_name=\"us-east-1\",\n    )\n    try:\n        client.head_bucket(Bucket=s3_bucket)\n\
+          \    except ClientError:\n        client.create_bucket(Bucket=s3_bucket)\n\
+          \n    try:\n        body = client.get_object(Bucket=s3_bucket, Key=s3_key)[\"\
+          Body\"].read()\n        df = pd.read_csv(io.BytesIO(body))\n        print(f\"\
+          Loaded s3://{s3_bucket}/{s3_key} ({len(df)} rows)\")\n    except ClientError:\n\
+          \        X, y = make_classification(\n            n_samples=5000, n_features=len(names),\
+          \ n_informative=4,\n            n_redundant=0, weights=[0.97, 0.03], class_sep=1.2,\
+          \ random_state=42,\n        )\n        df = pd.DataFrame(X, columns=names)\n\
+          \        df[\"fraud\"] = y\n        df[\"transaction_id\"] = df.index\n\
+          \        buf = io.BytesIO()\n        df.to_csv(buf, index=False)\n     \
+          \   client.put_object(Bucket=s3_bucket, Key=s3_key, Body=buf.getvalue())\n\
+          \        print(f\"Seeded + loaded s3://{s3_bucket}/{s3_key} ({len(df)} rows)\"\
+          )\n\n    df.to_csv(output_data.path, index=False)\n\n"
         image: python:3.11
     exec-process-features:
       container:
@@ -151,35 +165,28 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef process_features(\n    input_data: dsl.Input[dsl.Dataset],\n\
           \    output_data: dsl.Output[dsl.Dataset],\n    feast_online_server_url:\
-          \ str,\n):\n    \"\"\"Step 2: Feature processing \u2014 pull online features\
-          \ from the Feature Store.\n\n    The FeatureStore CR already ran `feast\
-          \ apply` + materialize from feature_repo/.\n    This step joins Feast online\
-          \ features with labels from the ingested CSV\n    (labels stay outside the\
-          \ feature store \u2014 standard Feast pattern).\n    \"\"\"\n    import\
-          \ pandas as pd\n    import requests\n\n    feature_names = [\n        \"\
-          distance_from_last_transaction\",\n        \"ratio_to_median_purchase_price\"\
+          \ str,\n):\n    \"\"\"Step 2: Join Feast online features with labels from\
+          \ S3 ingest.\"\"\"\n    import pandas as pd\n    import requests\n\n   \
+          \ names = [\n        \"distance_from_last_transaction\",\n        \"ratio_to_median_purchase_price\"\
           ,\n        \"used_chip\",\n        \"used_pin_number\",\n        \"online_order\"\
-          ,\n        \"repeat_retailer\",\n    ]\n\n    raw = pd.read_csv(input_data.path)\n\
+          ,\n        \"repeat_retailer\",\n    ]\n    raw = pd.read_csv(input_data.path)\n\
           \    if \"transaction_id\" not in raw.columns:\n        raw[\"transaction_id\"\
-          ] = raw.index\n    entity_ids = raw[\"transaction_id\"].astype(int).tolist()\n\
+          ] = raw.index\n    ids = raw[\"transaction_id\"].astype(int).tolist()\n\
           \    labels = raw[\"fraud\"].tolist() if \"fraud\" in raw.columns else [0]\
-          \ * len(entity_ids)\n\n    batch_size = 500\n    rows = []\n    for start\
-          \ in range(0, len(entity_ids), batch_size):\n        batch_ids = entity_ids[start\
-          \ : start + batch_size]\n        response = requests.post(\n           \
-          \ f\"{feast_online_server_url.rstrip('/')}/get-online-features\",\n    \
-          \        json={\n                \"features\": [f\"fraud_features:{name}\"\
-          \ for name in feature_names],\n                \"entities\": {\"transaction_id\"\
-          : batch_ids},\n            },\n            timeout=60,\n        )\n    \
-          \    response.raise_for_status()\n        body = response.json()\n     \
-          \   batch_df = pd.DataFrame(\n            dict(zip(body[\"metadata\"][\"\
-          feature_names\"], [r[\"values\"] for r in body[\"results\"]]))\n       \
-          \ )\n        rows.append(batch_df)\n\n    features = pd.concat(rows, ignore_index=True)\n\
-          \    # Keep entity id + model features; attach labels from the S3 ingest.\n\
-          \    keep = [c for c in features.columns if c in feature_names or c == \"\
-          transaction_id\"]\n    out = features[keep].copy()\n    out[\"fraud\"] =\
-          \ labels[: len(out)]\n    out.to_csv(output_data.path, index=False)\n  \
-          \  print(f\"Processed {len(out)} rows via Feature Store at {feast_online_server_url}\"\
-          )\n\n"
+          \ * len(ids)\n\n    rows = []\n    for start in range(0, len(ids), 500):\n\
+          \        batch = ids[start : start + 500]\n        r = requests.post(\n\
+          \            f\"{feast_online_server_url.rstrip('/')}/get-online-features\"\
+          ,\n            json={\n                \"features\": [f\"fraud_features:{n}\"\
+          \ for n in names],\n                \"entities\": {\"transaction_id\": batch},\n\
+          \            },\n            timeout=60,\n            verify=False,\n  \
+          \      )\n        r.raise_for_status()\n        body = r.json()\n      \
+          \  rows.append(\n            pd.DataFrame(\n                dict(zip(body[\"\
+          metadata\"][\"feature_names\"], [x[\"values\"] for x in body[\"results\"\
+          ]]))\n            )\n        )\n\n    out = pd.concat(rows, ignore_index=True)\n\
+          \    keep = [c for c in out.columns if c in names or c == \"transaction_id\"\
+          ]\n    out = out[keep].copy()\n    out[\"fraud\"] = labels[: len(out)]\n\
+          \    out.to_csv(output_data.path, index=False)\n    print(f\"Feature Store\
+          \ returned {len(out)} rows\")\n\n"
         image: python:3.11
     exec-train-log-register:
       container:
@@ -211,53 +218,44 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train_log_register(\n    input_data: dsl.Input[dsl.Dataset],\n\
           \    model_out: dsl.Output[dsl.Model],\n    mlflow_tracking_uri: str,\n\
-          \    mlflow_experiment: str,\n    registry_server_address: str,\n    model_name:\
-          \ str,\n    model_version: str,\n    register_model: bool = True,\n):\n\
-          \    \"\"\"Step 3: Train, log metrics/artifacts to MLflow, register in Model\
-          \ Registry.\"\"\"\n    import pickle\n\n    import mlflow\n    import mlflow.sklearn\n\
+          \    mlflow_experiment: str,\n    registry_server_address: str = \"\",\n\
+          \    model_name: str = \"fraud-detection\",\n    model_version: str = \"\
+          1.0.0\",\n):\n    \"\"\"Step 3: Train sklearn model, log to MLflow, optionally\
+          \ register.\"\"\"\n    import pickle\n\n    import mlflow\n    import mlflow.sklearn\n\
           \    import pandas as pd\n    from sklearn.linear_model import LogisticRegression\n\
           \    from sklearn.metrics import accuracy_score, precision_score, recall_score\n\
           \    from sklearn.model_selection import train_test_split\n    from sklearn.preprocessing\
-          \ import StandardScaler\n\n    feature_names = [\n        \"distance_from_last_transaction\"\
+          \ import StandardScaler\n\n    names = [\n        \"distance_from_last_transaction\"\
           ,\n        \"ratio_to_median_purchase_price\",\n        \"used_chip\",\n\
           \        \"used_pin_number\",\n        \"online_order\",\n        \"repeat_retailer\"\
-          ,\n    ]\n    df = pd.read_csv(input_data.path)\n    X, y = df[feature_names],\
-          \ df[\"fraud\"]\n    X_train, X_test, y_train, y_test = train_test_split(\n\
-          \        X, y, test_size=0.2, random_state=42, stratify=y\n    )\n    scaler\
-          \ = StandardScaler().fit(X_train)\n    X_train_s, X_test_s = scaler.transform(X_train),\
-          \ scaler.transform(X_test)\n\n    mlflow.set_tracking_uri(mlflow_tracking_uri)\n\
-          \    mlflow.set_experiment(mlflow_experiment)\n\n    with mlflow.start_run(run_name=\"\
-          fraud-mlops-pipeline\") as run:\n        model = LogisticRegression(max_iter=200,\
-          \ class_weight=\"balanced\")\n        model.fit(X_train_s, y_train)\n  \
-          \      preds = model.predict(X_test_s)\n        accuracy = float(accuracy_score(y_test,\
-          \ preds))\n        precision = float(precision_score(y_test, preds, zero_division=0))\n\
-          \        recall = float(recall_score(y_test, preds, zero_division=0))\n\n\
-          \        mlflow.log_param(\"model_type\", \"logistic_regression\")\n   \
-          \     mlflow.log_param(\"class_weight\", \"balanced\")\n        mlflow.log_metric(\"\
-          accuracy\", accuracy)\n        mlflow.log_metric(\"precision\", precision)\n\
-          \        mlflow.log_metric(\"recall\", recall)\n        mlflow.sklearn.log_model(model,\
-          \ \"model\")\n        run_id = run.info.run_id\n        artifact_uri = mlflow.get_artifact_uri(\"\
-          model\")\n\n    with open(model_out.path, \"wb\") as f:\n        pickle.dump({\"\
-          model\": model, \"scaler\": scaler}, f)\n\n    model_out.metadata[\"mlflow_run_id\"\
-          ] = run_id\n    model_out.metadata[\"mlflow_artifact_uri\"] = artifact_uri\n\
-          \    model_out.metadata[\"accuracy\"] = accuracy\n    print(f\"Trained:\
-          \ accuracy={accuracy:.4f} precision={precision:.4f} recall={recall:.4f}\"\
-          )\n    print(f\"MLflow run_id={run_id}\")\n\n    if register_model and registry_server_address:\n\
-          \        from model_registry import ModelRegistry\n\n        registry =\
-          \ ModelRegistry(\n            server_address=registry_server_address,\n\
-          \            port=443,\n            author=\"fraud-mlops-pipeline\",\n \
-          \       )\n        version = registry.register_model(\n            name=model_name,\n\
-          \            uri=artifact_uri,\n            version=model_version,\n   \
-          \         model_format_name=\"sklearn\",\n            model_format_version=\"\
-          1\",\n            metadata={\n                \"mlflow_run_id\": run_id,\n\
-          \                \"accuracy\": accuracy,\n                \"precision\"\
-          : precision,\n                \"recall\": recall,\n            },\n    \
-          \    )\n        print(f\"Registered {model_name} version={getattr(version,\
-          \ 'id', model_version)}\")\n    else:\n        print(\"Skipping Model Registry\
-          \ registration (register_model=false or empty address)\")\n\n"
+          ,\n    ]\n    df = pd.read_csv(input_data.path)\n    X, y = df[names], df[\"\
+          fraud\"]\n    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2,\
+          \ random_state=42, stratify=y)\n    scaler = StandardScaler().fit(X_tr)\n\
+          \    X_tr_s, X_te_s = scaler.transform(X_tr), scaler.transform(X_te)\n\n\
+          \    mlflow.set_tracking_uri(mlflow_tracking_uri)\n    mlflow.set_experiment(mlflow_experiment)\n\
+          \    with mlflow.start_run(run_name=\"fraud-mlops\") as run:\n        model\
+          \ = LogisticRegression(max_iter=200, class_weight=\"balanced\")\n      \
+          \  model.fit(X_tr_s, y_tr)\n        pred = model.predict(X_te_s)\n     \
+          \   metrics = {\n            \"accuracy\": float(accuracy_score(y_te, pred)),\n\
+          \            \"precision\": float(precision_score(y_te, pred, zero_division=0)),\n\
+          \            \"recall\": float(recall_score(y_te, pred, zero_division=0)),\n\
+          \        }\n        mlflow.log_params({\"model_type\": \"logistic_regression\"\
+          , \"class_weight\": \"balanced\"})\n        mlflow.log_metrics(metrics)\n\
+          \        mlflow.sklearn.log_model(model, \"model\")\n        run_id = run.info.run_id\n\
+          \        artifact_uri = mlflow.get_artifact_uri(\"model\")\n\n    with open(model_out.path,\
+          \ \"wb\") as f:\n        pickle.dump({\"model\": model, \"scaler\": scaler},\
+          \ f)\n    model_out.metadata.update({\"mlflow_run_id\": run_id, **metrics})\n\
+          \    print(f\"MLflow run={run_id} metrics={metrics}\")\n\n    if registry_server_address:\n\
+          \        from model_registry import ModelRegistry\n\n        reg = ModelRegistry(server_address=registry_server_address,\
+          \ port=443, author=\"fraud-mlops\")\n        v = reg.register_model(\n \
+          \           name=model_name,\n            uri=artifact_uri,\n          \
+          \  version=model_version,\n            model_format_name=\"sklearn\",\n\
+          \            model_format_version=\"1\",\n            metadata={\"mlflow_run_id\"\
+          : run_id, **metrics},\n        )\n        print(f\"Registered {model_name}\
+          \ id={getattr(v, 'id', model_version)}\")\n\n"
         image: python:3.11
 pipelineInfo:
-  description: S3 ingest -> Feature Store processing -> Train + MLflow + Model Registry
+  description: S3 -> Feature Store -> Train/MLflow/Registry
   name: fraud-mlops-pipeline
 root:
   dag:
@@ -321,8 +319,6 @@ root:
               componentInputParameter: model_name
             model_version:
               componentInputParameter: model_version
-            register_model:
-              componentInputParameter: register_model
             registry_server_address:
               componentInputParameter: registry_server_address
         taskInfo:
@@ -330,24 +326,16 @@ root:
   inputDefinitions:
     parameters:
       aws_access_key_id:
-        defaultValue: ''
-        isOptional: true
         parameterType: STRING
       aws_secret_access_key:
-        defaultValue: ''
-        isOptional: true
         parameterType: STRING
       feast_online_server_url:
-        defaultValue: http://feast-fraud-feature-store-online.fraud-mlops.svc.cluster.local:80
-        isOptional: true
         parameterType: STRING
       mlflow_experiment:
         defaultValue: fraud-mlops
         isOptional: true
         parameterType: STRING
       mlflow_tracking_uri:
-        defaultValue: https://mlflow.redhat-ods-applications.svc:8443/mlflow
-        isOptional: true
         parameterType: STRING
       model_name:
         defaultValue: fraud-detection
@@ -357,21 +345,13 @@ root:
         defaultValue: 1.0.0
         isOptional: true
         parameterType: STRING
-      register_model:
-        defaultValue: false
-        isOptional: true
-        parameterType: BOOLEAN
       registry_server_address:
         defaultValue: ''
         isOptional: true
         parameterType: STRING
       s3_bucket:
-        defaultValue: pipeline-artifacts
-        isOptional: true
         parameterType: STRING
       s3_endpoint:
-        defaultValue: http://minio.fraud-mlops.svc.cluster.local:9000
-        isOptional: true
         parameterType: STRING
       s3_key:
         defaultValue: fraud-mlops/raw/transactions.csv

@@ -1,7 +1,5 @@
 apiVersion: v2
 name: fraud-mlops
-description: >
-  Simple Argo CD / RHOAI 3.5 MLOps demo — Pipeline Server (DSPA), Feature Store,
-  optional workbench, Model Registry wiring. No Tempo/OTel complexity.
-version: 0.2.0
+description: RHOAI 3.5 MLOps demo — Pipeline Server + Feature Store (Argo CD)
+version: 1.0.0
 appVersion: "1.0.0"

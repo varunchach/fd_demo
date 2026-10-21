@@ -1,20 +1,29 @@
+# oc apply -f argocd/application.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-fraud-mlops-admin
+  namespace: fraud-mlops
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops
+roleRef:
+  kind: ClusterRole
+  name: admin
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: fraud-mlops
   namespace: openshift-gitops
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
     repoURL: https://github.com/varunchach/fd_demo.git
     targetRevision: main
     path: chart
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-demo.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: fraud-mlops
@@ -24,4 +33,3 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true

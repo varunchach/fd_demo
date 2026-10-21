@@ -1,11 +1,9 @@
-{{- if .Values.featureStore.enabled }}
 apiVersion: feast.dev/v1
 kind: FeatureStore
 metadata:
   name: {{ .Values.featureStore.name }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/part-of: fraud-mlops
     feature-store-ui: enabled
 spec:
   feastProject: {{ .Values.featureStore.feastProject }}
@@ -16,31 +14,6 @@ spec:
       featureRepoPath: feature_repo
   authz:
     noAuth: true
-{{- if eq .Values.featureStore.mode "postgres" }}
-  services:
-    onlineStore:
-      server: {}
-      persistence:
-        store:
-          type: redis
-          secretRef:
-            name: {{ .Values.featureStore.onlineStoreSecret }}
-    offlineStore:
-      persistence:
-        store:
-          type: postgres
-          secretRef:
-            name: {{ .Values.featureStore.offlineStoreSecret }}
-    registry:
-      local:
-        persistence:
-          store:
-            type: sql
-            secretRef:
-              name: {{ .Values.featureStore.registrySecret }}
-        server:
-          restAPI: true
-{{- else }}
   services:
     onlineStore:
       server: {}
@@ -48,5 +21,3 @@ spec:
     registry:
       local: {}
     ui: {}
-{{- end }}
-{{- end }}

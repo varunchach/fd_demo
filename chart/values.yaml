@@ -1,63 +1,19 @@
-# Fraud MLOps one-shot chart (RHOAI 3.5).
-# Override for a cluster: -f values-demo.yaml  (or client values).
-
+# Override git.repoURL if you fork. Secrets my-storage + pipeline-artifacts must exist.
 git:
   repoURL: https://github.com/varunchach/fd_demo.git
   revision: main
 
-namespace: fraud-mlops
-
-# Prerequisites (NOT created by this chart):
-#   Secret "my-storage"           — S3/MinIO data connection (AWS_* keys)
-#   Secret "pipeline-artifacts"   — S3 credentials for DSPA artifact store
-# Create via RHOAI Dashboard → Data connections, or scripts/setup-prereqs.sh
-
 storage:
-  myStorageSecret: my-storage
   pipelineArtifactsSecret: pipeline-artifacts
 
 pipelines:
-  enabled: true
   dspaName: fraud-mlops-dspa
-  # S3 used by the pipeline server for run artifacts
-  s3Host: minio.fraud-mlops.svc.cluster.local
+  s3Host: minio-credit-decisioning-dspa.credit-decisioning.svc.cluster.local
   s3Port: "9000"
   s3Scheme: http
   s3Bucket: pipeline-artifacts
   s3Region: us-east-1
 
 featureStore:
-  enabled: true
   name: fraud-feature-store
   feastProject: fraud_detection
-  # local = sqlite/file (fastest demo). postgres = use pre-created feast-* secrets.
-  mode: local
-  # Only used when mode=postgres (client already has Postgres + secrets)
-  onlineStoreSecret: feast-online-store-secret
-  offlineStoreSecret: feast-offline-store-secret
-  registrySecret: feast-registry-config
-
-# Seeds raw CSV into S3 so Step 1 of the pipeline has something to ingest.
-seedJob:
-  enabled: true
-  s3Key: fraud-mlops/raw/transactions.csv
-
-workbench:
-  enabled: true
-  name: fraud-mlops
-  image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
-  cpuRequest: "1"
-  memoryRequest: 2Gi
-  cpuLimit: "2"
-  memoryLimit: 4Gi
-  storageSize: 5Gi
-  mlflowInstanceName: mlflow
-
-modelRegistry:
-  enabled: true
-  name: fraud-mlops-registry
-  namespace: rhoai-model-registries
-  database: fraud_mlops_registry
-  username: registryuser
-  # Override in values-demo / client values — do not use a real prod password here.
-  password: "change-me-fraud-mlops"

@@ -1,44 +1,82 @@
 # Fraud MLOps — Argo CD + OpenShift AI 3.5
 
-Simple end-to-end MLOps demo for client showcases:
-
-1. **Pipeline server** declared in Git (DSPA)  
-2. **Kubeflow pipeline** with 3 components: S3 ingest → Feature Store → Train / MLflow / Model Registry  
-3. **Argo CD** Application keeps the cluster in sync with this repo  
-
-Full click-path: **[ONESHOT.md](ONESHOT.md)**
+Minimal end-to-end MLOps demo:
 
 ```
-argocd/          Argo CD Application + RBAC
-chart/           Helm chart → DSPA, FeatureStore, seed Job, workbench, Model Registry
-feature_repo/    Feast definitions (cloned by FeatureStore CR)
-pipeline/        KFP v2 source + compiled pipeline.yaml
-scripts/         setup-prereqs.sh, install-gitops.sh
+Git (this repo) --Argo CD--> DSPA + FeatureStore
+                              |
+                              v
+                     KFP: S3 -> Feast -> Train/MLflow
 ```
 
-## Quick deploy (after prereqs)
+## Clone
 
 ```bash
-./scripts/setup-prereqs.sh --from-secret minio-data-connection --from-ns <your-minio-ns>
-./scripts/install-gitops.sh          # if OpenShift GitOps not installed
-oc apply -f argocd/gitops-rbac.yaml
+git clone https://github.com/varunchach/fd_demo.git
+cd fd_demo
+```
+
+## Layout (final)
+
+```
+argocd/application.yaml   # Argo CD App + RBAC
+chart/                    # DSPA + FeatureStore only
+feature_repo/             # Feast definitions (cloned by operator)
+pipeline/                 # 3-step KFP source + compiled YAML
+```
+
+## One-shot deploy
+
+**0. Prereqs:** RHOAI 3.5 with `aipipelines`, `feastoperator`, `mlflowoperator` Managed. OpenShift GitOps installed. MLflow Available (`oc get mlflow`).
+
+**1. Namespace + S3 secrets** (you already have MinIO — copy a data-connection secret):
+
+```bash
+oc create ns fraud-mlops
+oc label ns fraud-mlops opendatahub.io/dashboard=true --overwrite
+
+# Copy your existing MinIO data connection (adjust names/ns)
+oc get secret minio-data-connection -n credit-decisioning -o json \
+  | sed 's/"namespace":"[^"]*"/"namespace":"fraud-mlops"/; s/"name":"[^"]*"/"name":"pipeline-artifacts"/' \
+  | oc apply -f -
+# Ensure AWS_S3_BUCKET=pipeline-artifacts and host matches chart/values.yaml
+```
+
+**2. Argo CD sync:**
+
+```bash
 oc apply -f argocd/application.yaml
+oc get application fraud-mlops -n openshift-gitops   # Synced/Healthy
+oc get dspa,featurestore -n fraud-mlops             # FeatureStore Ready
+```
+
+**3. Run pipeline:** Dashboard → Pipelines → Import `pipeline/pipeline.yaml` → Create run.
+
+| Param | Example |
+|-------|---------|
+| `s3_endpoint` | from Secret `pipeline-artifacts` / `AWS_S3_ENDPOINT` |
+| `s3_bucket` | `pipeline-artifacts` |
+| `aws_access_key_id` / `aws_secret_access_key` | from same Secret |
+| `feast_online_server_url` | `https://feast-fraud-feature-store-online.fraud-mlops.svc.cluster.local:443` |
+| `mlflow_tracking_uri` | cluster MLflow URL (e.g. `https://mlflow.redhat-ods-applications.svc:8443/mlflow`) |
+
+Pipeline steps: **(1) S3 ingest** (auto-seeds CSV if missing) → **(2) Feast online features** → **(3) train + MLflow** (set `registry_server_address` only if you want Model Registry).
+
+## Helm fallback (no Argo CD)
+
+```bash
+helm upgrade --install fraud-mlops ./chart -n fraud-mlops --create-namespace
 ```
 
 ## Recompile pipeline
 
 ```bash
-pip install kfp
-python pipeline/pipeline.py
+pip install kfp && python pipeline/pipeline.py
 ```
 
-## Feature Store modes
+## Cleanup
 
-| `featureStore.mode` | When |
-|---------------------|------|
-| `local` (default) | Fastest demo — sqlite/file inside the Feast pods |
-| `postgres` | Client already has Postgres + Redis secrets (`feast-*-secret`) |
-
-## What this deliberately skips
-
-Tempo / OpenTelemetry, custom NetworkPolicies, TrustyAI, Redis installs — keep the story on **GitOps → Pipelines → Feature Store → MLflow**.
+```bash
+oc delete application fraud-mlops -n openshift-gitops
+oc delete ns fraud-mlops
+```
