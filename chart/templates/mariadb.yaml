@@ -1,3 +1,6 @@
+{{- if .Values.pipelines.deployMariaDB }}
+# Lab-only DSPA metadata DB (MySQL/MariaDB). Customers: set deployMariaDB=false
+# and point pipelines.externalDb at their MySQL/MariaDB. Feast online uses Postgres separately.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -56,3 +59,4 @@ spec:
               command: ["bash", "-c", "mysqladmin ping -h 127.0.0.1 -u mlpipeline -pfraudmlops --silent"]
             initialDelaySeconds: 10
             periodSeconds: 5
+{{- end }}

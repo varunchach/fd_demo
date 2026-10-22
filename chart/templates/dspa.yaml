@@ -17,6 +17,7 @@ spec:
     customExtraParams: '{"tls":"false"}'
     mariaDB:
       deploy: false
+{{- if .Values.pipelines.deployMariaDB }}
     externalDB:
       host: fraud-db.{{ .Release.Namespace }}.svc.cluster.local
       port: "3306"
@@ -25,6 +26,16 @@ spec:
       passwordSecret:
         name: fraud-db
         key: password
+{{- else }}
+    externalDB:
+      host: {{ .Values.pipelines.externalDb.host | quote }}
+      port: {{ .Values.pipelines.externalDb.port | quote }}
+      username: {{ .Values.pipelines.externalDb.username | quote }}
+      pipelineDBName: {{ .Values.pipelines.externalDb.database | quote }}
+      passwordSecret:
+        name: {{ .Values.pipelines.externalDb.passwordSecret }}
+        key: {{ .Values.pipelines.externalDb.passwordKey }}
+{{- end }}
   objectStorage:
     externalStorage:
       host: {{ .Values.pipelines.s3Host }}
@@ -33,7 +44,7 @@ spec:
       scheme: {{ .Values.pipelines.s3Scheme }}
       region: {{ .Values.pipelines.s3Region }}
       s3CredentialsSecret:
-        secretName: {{ .Values.storage.pipelineArtifactsSecret }}
+        secretName: {{ .Values.pipelines.artifactsSecret | default .Values.storage.pipelineArtifactsSecret }}
         accessKey: AWS_ACCESS_KEY_ID
         secretKey: AWS_SECRET_ACCESS_KEY
   mlflow:

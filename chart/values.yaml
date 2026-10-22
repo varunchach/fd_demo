@@ -1,20 +1,55 @@
-# Target namespace is set by Argo CD (fraud-detection), not here.
+# Customer / lab values for fraud MLOps on OpenShift AI 3.5
+# Namespace comes from Argo CD / helm -n
+
 git:
   repoURL: https://github.com/varunchach/fd_demo.git
   revision: main
 
-storage:
-  pipelineArtifactsSecret: pipeline-artifacts
-
+# ---------------------------------------------------------------------------
+# 1) Pipeline artifacts S3  (DSPA object store — run logs, datasets, models)
+# ---------------------------------------------------------------------------
 pipelines:
   dspaName: fraud-detection-dspa
-  # Change these to your MinIO/S3 before first sync.
-  s3Host: minio-credit-decisioning-dspa.credit-decisioning.svc.cluster.local
-  s3Port: "9000"
-  s3Scheme: http
+  s3Host: s3.example.com                    # hostname only (no scheme)
+  s3Port: "443"
+  s3Scheme: https
   s3Bucket: pipeline-artifacts
   s3Region: us-east-1
+  # Secret must contain: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+  # (optional but recommended: AWS_DEFAULT_REGION)
+  artifactsSecret: pipeline-artifacts
 
+  # DSPA metadata DB — MySQL/MariaDB compatible (NOT Postgres).
+  # Set deployMariaDB: false and fill externalDb when using customer MariaDB/MySQL.
+  deployMariaDB: true
+  externalDb:
+    host: ""
+    port: "3306"
+    username: mlpipeline
+    database: mlpipeline
+    passwordSecret: fraud-db
+    passwordKey: password
+
+# ---------------------------------------------------------------------------
+# 2) Feast Feature Store
+#    - Online:  PostgreSQL (customer)
+#    - Offline: S3 parquet FileSource (customer offline bucket)
+#    - Registry: S3 file registry (same or separate bucket)
+# ---------------------------------------------------------------------------
 featureStore:
   name: fraud-feature-store
   feastProject: fraud_detection
+
+  # Secret with Feast online_store YAML (see examples/secrets/feast-online-postgres.yaml)
+  onlinePostgresSecret: feast-online-postgres
+  onlinePostgresSecretKey: feature_store.yaml   # key inside the secret
+
+  # Secret with AWS_* for Feast offline parquet + S3 registry
+  # (can be different from pipeline-artifacts)
+  offlineS3Secret: feast-offline-s3
+  offlineS3Prefix: fraud-detection/features     # parquet under this prefix
+  registryS3Path: s3://feast-registry/fraud-detection/registry.db
+
+storage:
+  # kept for backward-compat aliases used in older templates
+  pipelineArtifactsSecret: pipeline-artifacts

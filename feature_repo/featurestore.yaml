@@ -1,10 +1,11 @@
-# oc apply -f feature_repo/featurestore.yaml
-# After: Secret feast-s3 + Job seed-features-to-s3 succeeded
+# Standalone apply example (prefer Helm chart). Customer architecture:
+#   online = Postgres secret feast-online-postgres
+#   offline parquet + registry = S3 secret feast-offline-s3
 apiVersion: feast.dev/v1
 kind: FeatureStore
 metadata:
   name: fraud-feature-store
-  namespace: fraud-detection
+  namespace: fraud-mlops
   labels:
     feature-store-ui: enabled
 spec:
@@ -18,20 +19,30 @@ spec:
     noAuth: true
   services:
     onlineStore:
+      persistence:
+        store:
+          type: postgres
+          secretRef:
+            name: feast-online-postgres
+          secretKeyName: feature_store.yaml
       server:
         envFrom:
           - secretRef:
-              name: feast-s3
+              name: feast-offline-s3
         env:
           - name: FEAST_S3_PREFIX
             value: fraud-detection/features
-          - name: AWS_DEFAULT_REGION
-            value: us-east-1
           - name: AWS_S3_FORCE_PATH_STYLE
             value: "true"
-    offlineStore: {}
+    offlineStore:
+      persistence:
+        file:
+          type: dask
     registry:
       local:
         server:
           restAPI: true
+        persistence:
+          file:
+            path: s3://feast-registry/fraud-detection/registry.db
     ui: {}

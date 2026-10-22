@@ -15,21 +15,35 @@ spec:
   authz:
     noAuth: true
   services:
+    # Online serving → customer PostgreSQL
     onlineStore:
+      persistence:
+        store:
+          type: postgres
+          secretRef:
+            name: {{ .Values.featureStore.onlinePostgresSecret }}
+          secretKeyName: {{ .Values.featureStore.onlinePostgresSecretKey }}
       server:
+        # AWS env so materialize / FileSource can read offline S3
         envFrom:
           - secretRef:
-              name: {{ .Values.storage.pipelineArtifactsSecret }}
+              name: {{ .Values.featureStore.offlineS3Secret }}
         env:
           - name: FEAST_S3_PREFIX
-            value: fraud-detection/features
-          - name: AWS_DEFAULT_REGION
-            value: us-east-1
+            value: {{ .Values.featureStore.offlineS3Prefix | quote }}
           - name: AWS_S3_FORCE_PATH_STYLE
             value: "true"
-    offlineStore: {}
+    # Offline = file/dask reading S3 parquet defined in feature_repo/features.py
+    offlineStore:
+      persistence:
+        file:
+          type: dask
+    # Registry metadata on S3
     registry:
       local:
         server:
           restAPI: true
+        persistence:
+          file:
+            path: {{ .Values.featureStore.registryS3Path | quote }}
     ui: {}
