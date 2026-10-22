@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: submit-fraud-pipeline
+  namespace: fraud-mlops
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: fraud-pipeline-submitter
+      restartPolicy: Never
+      containers:
+        - name: submit
+          image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
+          envFrom:
+            - secretRef:
+                name: pipeline-artifacts
+          env:
+            - name: HOME
+              value: /tmp
+            - name: NAMESPACE
+              value: fraud-mlops
+            - name: DSPA_API
+              value: https://ds-pipeline-fraud-detection-dspa.fraud-mlops.svc:8443
+            - name: FEAST_URL
+              value: https://feast-fraud-feature-store-online.fraud-mlops.svc.cluster.local:443
+            - name: MLFLOW_TRACKING_URI
+              value: https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow
+            - name: PIPELINE_FILE
+              value: /pipeline/pipeline.yaml
+            - name: RUN_NAME
+              value: fraud-mlops-e2e-mlflow
+            - name: PIPELINE_SA
+              value: pipeline-runner-fraud-detection-dspa
+          command: ["python", "/scripts/submit_pipeline_run.py"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: pipeline
+              mountPath: /pipeline
+      volumes:
+        - name: scripts
+          configMap:
+            name: feast-submit-script
+        - name: pipeline
+          configMap:
+            name: fraud-mlops-pipeline-yaml
+

@@ -201,10 +201,10 @@ deploymentSpec:
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
-          \ 'scikit-learn==1.5.2' 'mlflow==3.14.0' 'model-registry==0.2.21'  &&  python3\
-          \ -m pip install --quiet --no-warn-script-location 'kfp==2.17.0' '--no-deps'\
-          \ 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"$0\" \"$@\"\
-          \n"
+          \ 'scikit-learn==1.5.2' 'mlflow[kubernetes]==3.14.0' 'model-registry==0.2.21'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -221,26 +221,49 @@ deploymentSpec:
           \    mlflow_experiment: str,\n    registry_server_address: str = \"\",\n\
           \    model_name: str = \"fraud-detection\",\n    model_version: str = \"\
           1.0.0\",\n):\n    \"\"\"Step 3: Train sklearn model, log to MLflow, optionally\
-          \ register.\"\"\"\n    import pickle\n\n    import mlflow\n    import mlflow.sklearn\n\
-          \    import pandas as pd\n    from sklearn.linear_model import LogisticRegression\n\
-          \    from sklearn.metrics import accuracy_score, precision_score, recall_score\n\
-          \    from sklearn.model_selection import train_test_split\n    from sklearn.preprocessing\
-          \ import StandardScaler\n\n    names = [\n        \"distance_from_last_transaction\"\
-          ,\n        \"ratio_to_median_purchase_price\",\n        \"used_chip\",\n\
-          \        \"used_pin_number\",\n        \"online_order\",\n        \"repeat_retailer\"\
-          ,\n    ]\n    df = pd.read_csv(input_data.path)\n    X, y = df[names], df[\"\
-          fraud\"]\n    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2,\
-          \ random_state=42, stratify=y)\n    scaler = StandardScaler().fit(X_tr)\n\
-          \    X_tr_s, X_te_s = scaler.transform(X_tr), scaler.transform(X_te)\n\n\
-          \    mlflow.set_tracking_uri(mlflow_tracking_uri)\n    mlflow.set_experiment(mlflow_experiment)\n\
-          \    with mlflow.start_run(run_name=\"fraud-mlops\") as run:\n        model\
-          \ = LogisticRegression(max_iter=200, class_weight=\"balanced\")\n      \
-          \  model.fit(X_tr_s, y_tr)\n        pred = model.predict(X_te_s)\n     \
-          \   metrics = {\n            \"accuracy\": float(accuracy_score(y_te, pred)),\n\
-          \            \"precision\": float(precision_score(y_te, pred, zero_division=0)),\n\
-          \            \"recall\": float(recall_score(y_te, pred, zero_division=0)),\n\
-          \        }\n        mlflow.log_params({\"model_type\": \"logistic_regression\"\
-          , \"class_weight\": \"balanced\"})\n        mlflow.log_metrics(metrics)\n\
+          \ register.\"\"\"\n    import json\n    import os\n    import pickle\n\n\
+          \    import mlflow\n    import mlflow.sklearn\n    import pandas as pd\n\
+          \    from sklearn.linear_model import LogisticRegression\n    from sklearn.metrics\
+          \ import accuracy_score, precision_score, recall_score\n    from sklearn.model_selection\
+          \ import train_test_split\n    from sklearn.preprocessing import StandardScaler\n\
+          \n    names = [\n        \"distance_from_last_transaction\",\n        \"\
+          ratio_to_median_purchase_price\",\n        \"used_chip\",\n        \"used_pin_number\"\
+          ,\n        \"online_order\",\n        \"repeat_retailer\",\n    ]\n\n  \
+          \  df = pd.read_csv(input_data.path)\n    X, y = df[names], df[\"fraud\"\
+          ]\n    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42,\
+          \ stratify=y)\n    scaler = StandardScaler().fit(X_tr)\n    X_tr_s, X_te_s\
+          \ = scaler.transform(X_tr), scaler.transform(X_te)\n\n    # RHOAI MLflow\
+          \ (workspaces): X-MLFLOW-WORKSPACE + SA token.\n    # KFP injects KFP_MLFLOW_CONFIG\
+          \ when DSPA mlflow.integrationMode=AUTODETECT.\n    parent = None\n    kfp_mlflow\
+          \ = os.environ.get(\"KFP_MLFLOW_CONFIG\")\n    if kfp_mlflow:\n        cfg\
+          \ = json.loads(kfp_mlflow)\n        uri = cfg.get(\"endpoint\") or mlflow_tracking_uri\n\
+          \        workspace = cfg.get(\"workspace\") or os.environ.get(\"MLFLOW_WORKSPACE\"\
+          , \"fraud-mlops\")\n        os.environ[\"MLFLOW_TRACKING_URI\"] = uri\n\
+          \        os.environ[\"MLFLOW_WORKSPACE\"] = workspace\n        os.environ[\"\
+          MLFLOW_TRACKING_AUTH\"] = \"kubernetes-namespaced\"\n        os.environ[\"\
+          MLFLOW_TRACKING_INSECURE_TLS\"] = \"true\"\n        token_path = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\
+          \n        if os.path.exists(token_path):\n            with open(token_path,\
+          \ encoding=\"utf-8\") as tf:\n                os.environ[\"MLFLOW_TRACKING_TOKEN\"\
+          ] = tf.read().strip()\n        mlflow.set_tracking_uri(uri)\n        exp_id\
+          \ = cfg.get(\"experimentId\")\n        if exp_id:\n            mlflow.set_experiment(experiment_id=str(exp_id))\n\
+          \        else:\n            mlflow.set_experiment(mlflow_experiment)\n \
+          \       parent = cfg.get(\"parentRunId\")\n    else:\n        uri = mlflow_tracking_uri\n\
+          \        if uri.startswith(\"file:\"):\n            uri = \"sqlite:////tmp/mlflow-fraud.db\"\
+          \n        # Allow callers to pass a cluster URI with workspace via env\n\
+          \        if uri.startswith(\"http\") and \"MLFLOW_WORKSPACE\" not in os.environ:\n\
+          \            os.environ[\"MLFLOW_WORKSPACE\"] = os.environ.get(\"NAMESPACE\"\
+          , \"fraud-mlops\")\n            os.environ[\"MLFLOW_TRACKING_AUTH\"] = \"\
+          kubernetes-namespaced\"\n            os.environ[\"MLFLOW_TRACKING_INSECURE_TLS\"\
+          ] = \"true\"\n        mlflow.set_tracking_uri(uri)\n        mlflow.set_experiment(mlflow_experiment)\n\
+          \n    run_ctx = (\n        mlflow.start_run(run_name=\"fraud-mlops\", parent_run_id=parent)\n\
+          \        if parent\n        else mlflow.start_run(run_name=\"fraud-mlops\"\
+          )\n    )\n\n    with run_ctx as run:\n        model = LogisticRegression(max_iter=200,\
+          \ class_weight=\"balanced\")\n        model.fit(X_tr_s, y_tr)\n        pred\
+          \ = model.predict(X_te_s)\n        metrics = {\n            \"accuracy\"\
+          : float(accuracy_score(y_te, pred)),\n            \"precision\": float(precision_score(y_te,\
+          \ pred, zero_division=0)),\n            \"recall\": float(recall_score(y_te,\
+          \ pred, zero_division=0)),\n        }\n        mlflow.log_params({\"model_type\"\
+          : \"logistic_regression\", \"class_weight\": \"balanced\"})\n        mlflow.log_metrics(metrics)\n\
           \        mlflow.sklearn.log_model(model, \"model\")\n        run_id = run.info.run_id\n\
           \        artifact_uri = mlflow.get_artifact_uri(\"model\")\n\n    with open(model_out.path,\
           \ \"wb\") as f:\n        pickle.dump({\"model\": model, \"scaler\": scaler},\

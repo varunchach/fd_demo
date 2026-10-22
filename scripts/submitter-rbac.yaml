@@ -1,0 +1,20 @@
+# DSPA API access for the in-cluster pipeline submit Job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fraud-pipeline-submitter
+  namespace: fraud-mlops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fraud-pipeline-submitter-dspa
+  namespace: fraud-mlops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ds-pipeline-user-access-fraud-detection-dspa
+subjects:
+  - kind: ServiceAccount
+    name: fraud-pipeline-submitter
+    namespace: fraud-mlops

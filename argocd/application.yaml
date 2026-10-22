@@ -1,9 +1,10 @@
 # oc apply -f argocd/application.yaml
+# Adjust metadata.name / destination.namespace if you use a different project.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: argocd-fraud-detection-admin
-  namespace: fraud-detection
+  name: argocd-fraud-mlops-admin
+  namespace: fraud-mlops
 subjects:
   - kind: ServiceAccount
     name: openshift-gitops-argocd-application-controller
@@ -16,7 +17,7 @@ roleRef:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: fraud-detection
+  name: fraud-mlops
   namespace: openshift-gitops
 spec:
   project: default
@@ -26,10 +27,11 @@ spec:
     path: chart
   destination:
     server: https://kubernetes.default.svc
-    namespace: fraud-detection
+    namespace: fraud-mlops
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true

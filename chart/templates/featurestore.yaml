@@ -29,5 +29,7 @@ spec:
             value: "true"
     offlineStore: {}
     registry:
-      local: {}
+      local:
+        server:
+          restAPI: true
     ui: {}

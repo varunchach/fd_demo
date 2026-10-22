@@ -129,7 +129,12 @@ def process_features(
 
 @dsl.component(
     base_image="python:3.11",
-    packages_to_install=["pandas==2.2.3", "scikit-learn==1.5.2", "mlflow==3.14.0", "model-registry==0.2.21"],
+    packages_to_install=[
+        "pandas==2.2.3",
+        "scikit-learn==1.5.2",
+        "mlflow[kubernetes]==3.14.0",
+        "model-registry==0.2.21",
+    ],
 )
 def train_log_register(
     input_data: dsl.Input[dsl.Dataset],
@@ -141,6 +146,8 @@ def train_log_register(
     model_version: str = "1.0.0",
 ):
     """Step 3: Train sklearn model, log to MLflow, optionally register."""
+    import json
+    import os
     import pickle
 
     import mlflow
@@ -159,15 +166,55 @@ def train_log_register(
         "online_order",
         "repeat_retailer",
     ]
+
     df = pd.read_csv(input_data.path)
     X, y = df[names], df["fraud"]
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     scaler = StandardScaler().fit(X_tr)
     X_tr_s, X_te_s = scaler.transform(X_tr), scaler.transform(X_te)
 
-    mlflow.set_tracking_uri(mlflow_tracking_uri)
-    mlflow.set_experiment(mlflow_experiment)
-    with mlflow.start_run(run_name="fraud-mlops") as run:
+    # RHOAI MLflow (workspaces): X-MLFLOW-WORKSPACE + SA token.
+    # KFP injects KFP_MLFLOW_CONFIG when DSPA mlflow.integrationMode=AUTODETECT.
+    parent = None
+    kfp_mlflow = os.environ.get("KFP_MLFLOW_CONFIG")
+    if kfp_mlflow:
+        cfg = json.loads(kfp_mlflow)
+        uri = cfg.get("endpoint") or mlflow_tracking_uri
+        workspace = cfg.get("workspace") or os.environ.get("MLFLOW_WORKSPACE", "fraud-mlops")
+        os.environ["MLFLOW_TRACKING_URI"] = uri
+        os.environ["MLFLOW_WORKSPACE"] = workspace
+        os.environ["MLFLOW_TRACKING_AUTH"] = "kubernetes-namespaced"
+        os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
+        token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        if os.path.exists(token_path):
+            with open(token_path, encoding="utf-8") as tf:
+                os.environ["MLFLOW_TRACKING_TOKEN"] = tf.read().strip()
+        mlflow.set_tracking_uri(uri)
+        exp_id = cfg.get("experimentId")
+        if exp_id:
+            mlflow.set_experiment(experiment_id=str(exp_id))
+        else:
+            mlflow.set_experiment(mlflow_experiment)
+        parent = cfg.get("parentRunId")
+    else:
+        uri = mlflow_tracking_uri
+        if uri.startswith("file:"):
+            uri = "sqlite:////tmp/mlflow-fraud.db"
+        # Allow callers to pass a cluster URI with workspace via env
+        if uri.startswith("http") and "MLFLOW_WORKSPACE" not in os.environ:
+            os.environ["MLFLOW_WORKSPACE"] = os.environ.get("NAMESPACE", "fraud-mlops")
+            os.environ["MLFLOW_TRACKING_AUTH"] = "kubernetes-namespaced"
+            os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
+        mlflow.set_tracking_uri(uri)
+        mlflow.set_experiment(mlflow_experiment)
+
+    run_ctx = (
+        mlflow.start_run(run_name="fraud-mlops", parent_run_id=parent)
+        if parent
+        else mlflow.start_run(run_name="fraud-mlops")
+    )
+
+    with run_ctx as run:
         model = LogisticRegression(max_iter=200, class_weight="balanced")
         model.fit(X_tr_s, y_tr)
         pred = model.predict(X_te_s)

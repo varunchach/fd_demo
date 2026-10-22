@@ -1,7 +1,7 @@
 import os
 from datetime import timedelta
 
-from feast import Entity, FeatureView, Field, FileSource
+from feast import Entity, FeatureService, FeatureView, Field, FileSource
 from feast.types import Float32, Int64
 
 _bucket = os.environ.get("AWS_S3_BUCKET", "pipeline-artifacts")
@@ -30,4 +30,10 @@ fraud_features = FeatureView(
         Field(name="repeat_retailer", dtype=Int64),
     ],
     source=transaction_source,
+)
+
+# Serving group shown under Feature services in the RHOAI Feature Store UI
+fraud_feature_service = FeatureService(
+    name="fraud_txn_service",
+    features=[fraud_features],
 )
