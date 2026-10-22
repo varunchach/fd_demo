@@ -40,7 +40,8 @@ featureStore:
   name: fraud-feature-store
   feastProject: fraud_detection
 
-  # Secret with Feast online_store YAML (see examples/secrets/feast-online-postgres.yaml)
+  # Secret with FLAT postgres connection YAML (host/port/database/user/password).
+  # Do NOT wrap with online_store: — see examples/secrets/feast-online-postgres.yaml
   onlinePostgresSecret: feast-online-postgres
   onlinePostgresSecretKey: feature_store.yaml   # key inside the secret
 

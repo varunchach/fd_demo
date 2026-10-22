@@ -33,6 +33,11 @@ spec:
             value: {{ .Values.featureStore.offlineS3Prefix | quote }}
           - name: AWS_S3_FORCE_PATH_STYLE
             value: "true"
+          # Avoid PutObject x-amz-content-sha256 InvalidArgument on S3 gateways
+          - name: AWS_REQUEST_CHECKSUM_CALCULATION
+            value: WHEN_REQUIRED
+          - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+            value: WHEN_REQUIRED
     # Offline = file/dask reading S3 parquet defined in feature_repo/features.py
     offlineStore:
       persistence:
@@ -43,7 +48,28 @@ spec:
       local:
         server:
           restAPI: true
+          envFrom:
+            - secretRef:
+                name: {{ .Values.featureStore.offlineS3Secret }}
+          env:
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: "true"
+            - name: AWS_REQUEST_CHECKSUM_CALCULATION
+              value: WHEN_REQUIRED
+            - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+              value: WHEN_REQUIRED
         persistence:
           file:
             path: {{ .Values.featureStore.registryS3Path | quote }}
-    ui: {}
+    # UI also reads S3 registry — needs same AWS env as registry/online
+    ui:
+      envFrom:
+        - secretRef:
+            name: {{ .Values.featureStore.offlineS3Secret }}
+      env:
+        - name: AWS_S3_FORCE_PATH_STYLE
+          value: "true"
+        - name: AWS_REQUEST_CHECKSUM_CALCULATION
+          value: WHEN_REQUIRED
+        - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+          value: WHEN_REQUIRED

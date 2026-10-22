@@ -1,10 +1,10 @@
 # oc apply -f argocd/application.yaml
-# Adjust metadata.name / destination.namespace if you use a different project.
+# Deploys chart/ into fraud-detection (secrets must already exist in that NS).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: argocd-fraud-mlops-admin
-  namespace: fraud-mlops
+  name: argocd-fraud-detection-admin
+  namespace: fraud-detection
 subjects:
   - kind: ServiceAccount
     name: openshift-gitops-argocd-application-controller
@@ -17,7 +17,7 @@ roleRef:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: fraud-mlops
+  name: fraud-detection
   namespace: openshift-gitops
 spec:
   project: default
@@ -27,7 +27,7 @@ spec:
     path: chart
   destination:
     server: https://kubernetes.default.svc
-    namespace: fraud-mlops
+    namespace: fraud-detection
   syncPolicy:
     automated:
       prune: true

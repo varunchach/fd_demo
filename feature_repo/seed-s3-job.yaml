@@ -1,10 +1,10 @@
 # Seeds Feast OFFLINE parquet into the feast-offline-s3 bucket.
-# Edit namespace if needed. Requires secret feast-offline-s3.
+# Requires secret feast-offline-s3 (AWS_S3_ENDPOINT, AWS_S3_BUCKET, keys).
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: seed-feast-script
-  namespace: fraud-mlops
+  namespace: fraud-detection
 data:
   seed.py: |
     import io, os
@@ -31,7 +31,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: seed-features-to-s3
-  namespace: fraud-mlops
+  namespace: fraud-detection
 spec:
   ttlSecondsAfterFinished: 600
   backoffLimit: 3

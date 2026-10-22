@@ -1,11 +1,14 @@
+# Submit KFP run against DSPA (CLI — no dashboard).
+# Prerequisites: ConfigMaps feast-submit-script + fraud-detection-pipeline-yaml
+#   (created by scripts/oneshot.sh)
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: submit-fraud-pipeline
-  namespace: fraud-mlops
+  namespace: fraud-detection
 spec:
   ttlSecondsAfterFinished: 600
-  backoffLimit: 0
+  backoffLimit: 1
   template:
     spec:
       serviceAccountName: fraud-pipeline-submitter
@@ -20,17 +23,17 @@ spec:
             - name: HOME
               value: /tmp
             - name: NAMESPACE
-              value: fraud-mlops
+              value: fraud-detection
             - name: DSPA_API
-              value: https://ds-pipeline-fraud-detection-dspa.fraud-mlops.svc:8443
+              value: https://ds-pipeline-fraud-detection-dspa.fraud-detection.svc.cluster.local:8443
             - name: FEAST_URL
-              value: https://feast-fraud-feature-store-online.fraud-mlops.svc.cluster.local:443
+              value: https://feast-fraud-feature-store-online.fraud-detection.svc.cluster.local:443
             - name: MLFLOW_TRACKING_URI
               value: https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow
             - name: PIPELINE_FILE
               value: /pipeline/pipeline.yaml
             - name: RUN_NAME
-              value: fraud-mlops-e2e-mlflow
+              value: fraud-detection-e2e
             - name: PIPELINE_SA
               value: pipeline-runner-fraud-detection-dspa
           command: ["python", "/scripts/submit_pipeline_run.py"]
@@ -45,5 +48,4 @@ spec:
             name: feast-submit-script
         - name: pipeline
           configMap:
-            name: fraud-mlops-pipeline-yaml
-
+            name: fraud-detection-pipeline-yaml

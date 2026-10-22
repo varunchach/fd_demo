@@ -50,18 +50,21 @@ oc apply -f examples/secrets/feast-offline-s3.yaml -n $NS
 oc apply -f examples/secrets/feast-online-postgres.yaml -n $NS
 ```
 
-**Postgres secret** (`feast-online-postgres`) must contain key `feature_store.yaml` with:
+**Postgres secret** (`feast-online-postgres`) must contain key `feature_store.yaml`
+with **flat** connection fields only (verified on RHOAI Feast operator).
+
+Do **not** wrap with `online_store:` and do **not** include `type:` — the operator
+injects this YAML under `online_store` and already sets `type: postgres` from the CR.
+Wrapping causes: `host Field required` / `online_store Extra inputs are not permitted`.
 
 ```yaml
-online_store:
-  type: postgres
-  host: <pg-host>
-  port: 5432
-  database: feast
-  db_schema: public
-  user: <user>
-  password: <password>
-  sslmode: require    # or disable for lab
+host: <pg-host>
+port: 5432
+database: feast
+db_schema: public
+user: <user>
+password: <password>
+sslmode: require    # or disable for lab
 ```
 
 ---
