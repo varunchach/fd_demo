@@ -1,7 +1,7 @@
-# Fresh Argo Application → namespace fd-gitops (does not touch fraud-detection).
-# Prerequisites: fill + apply examples/secrets/*.yaml into fd-gitops.
+# Fresh Argo Application → namespace fd-gitops.
+# Prerequisites: secrets already in fd-gitops (./scripts/apply_fd_gitops_secrets.sh).
 #   oc apply -f argocd/application.yaml
-# See docs/GITOPS_DEMO.md
+# See docs/CLIENT_DEMO.md
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -10,6 +10,7 @@ metadata:
     opendatahub.io/dashboard: "true"
     opendatahub.io/feast: "true"
 ---
+# OpenShift GitOps SA name varies by install — bind both common names.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -18,6 +19,9 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops
+  - kind: ServiceAccount
+    name: argocd-argocd-application-controller
     namespace: openshift-gitops
 roleRef:
   kind: ClusterRole
@@ -51,8 +55,8 @@ spec:
       - CreateNamespace=true
       - RespectIgnoreDifferences=true
     retry:
-      limit: 3
+      limit: 5
       backoff:
         duration: 30s
         factor: 2
-        maxDuration: 3m
+        maxDuration: 5m
