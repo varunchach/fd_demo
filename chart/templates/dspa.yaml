@@ -1,4 +1,10 @@
 {{- if .Values.pipelines.enabled }}
+{{- if not .Values.pipelines.s3Host }}
+{{- fail "pipelines.s3Host is required (set via Argo helm.parameters)" }}
+{{- end }}
+{{- if not .Values.pipelines.s3Bucket }}
+{{- fail "pipelines.s3Bucket is required (set via Argo helm.parameters)" }}
+{{- end }}
 {{- $db := .Values.pipelines.mariaDbName }}
 apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
 kind: DataSciencePipelinesApplication

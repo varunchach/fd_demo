@@ -1,4 +1,11 @@
 {{- if .Values.featureStore.enabled }}
+{{- if not .Values.featureStore.offlineS3Bucket }}
+{{- fail "featureStore.offlineS3Bucket is required (set via Argo helm.parameters — do not leave empty)" }}
+{{- end }}
+{{- $registryPath := .Values.featureStore.registryS3Path }}
+{{- if not $registryPath }}
+{{- $registryPath = printf "s3://%s/fd-gitops/registry.db" .Values.featureStore.offlineS3Bucket }}
+{{- end }}
 apiVersion: feast.dev/v1
 kind: FeatureStore
 metadata:
@@ -63,7 +70,7 @@ spec:
               value: WHEN_REQUIRED
         persistence:
           file:
-            path: {{ .Values.featureStore.registryS3Path | quote }}
+            path: {{ $registryPath | quote }}
     # UI also reads S3 registry — needs same AWS env as registry/online
     ui:
       envFrom:

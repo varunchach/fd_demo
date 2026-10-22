@@ -1,25 +1,25 @@
-# Greenfield GitOps demo — nothing shared with prior fraud-detection / dspa runs.
-# Destination namespace: fd-gitops (Argo Application + helm -n)
+# Chart defaults — NO customer hosts/buckets hardcoded here.
+# Set site-specific values via Argo Application helm.parameters
+# (see argocd/application.yaml) or: helm upgrade ... --set featureStore.offlineS3Bucket=...
 
 git:
   repoURL: https://github.com/varunchach/fd_demo.git
   revision: main
 
-# ---------------------------------------------------------------------------
-# DSPA (always created by this chart — do not point at an existing DSPA)
-# ---------------------------------------------------------------------------
 pipelines:
   enabled: true
   dspaName: fd-gitops-dspa
   deployMariaDB: true
   mariaDbName: fd-gitops-db
-  s3Host: bls3-rhoat-non-prod.bajajlife.com
+  # REQUIRED (override in Argo): S3 hostname only, no https://
+  s3Host: ""
   s3Port: "443"
   s3Scheme: https
-  s3Bucket: kubeflow-pipelines
+  # REQUIRED (override in Argo): DSPA artifacts bucket
+  s3Bucket: ""
   s3Region: us-east-1
   artifactsSecret: fd-gitops-pipeline-s3
-  # Must be uppercase: AUTODETECT | DISABLED (API rejects mixed case like "Disabled")
+  # Uppercase enum only: AUTODETECT | DISABLED
   mlflowIntegrationMode: AUTODETECT
   injectUserEnvVars: true
   externalDb:
@@ -30,9 +30,6 @@ pipelines:
     passwordSecret: fd-gitops-db
     passwordKey: password
 
-# ---------------------------------------------------------------------------
-# Feast Feature Store (new name + new S3 prefix + new registry path)
-# ---------------------------------------------------------------------------
 featureStore:
   enabled: true
   name: fd-gitops-fs
@@ -40,12 +37,13 @@ featureStore:
   onlinePostgresSecret: fd-gitops-feast-pg
   onlinePostgresSecretKey: feature_store.yaml
   offlineS3Secret: fd-gitops-feast-s3
+  # REQUIRED (override in Argo): must match secret fd-gitops-feast-s3 AWS_S3_BUCKET
+  offlineS3Bucket: ""
   offlineS3Prefix: fd-gitops/features
-  registryS3Path: s3://feature_store/fd-gitops/registry.db
+  # Leave empty → chart builds s3://<offlineS3Bucket>/<offlineS3Prefix>/../registry.db
+  # Or set full path explicitly if you prefer.
+  registryS3Path: ""
 
-# ---------------------------------------------------------------------------
-# Argo CD PostSync: seed → materialize → submit (all new Job names)
-# ---------------------------------------------------------------------------
 hooks:
   enabled: true
   seedOffline: true
