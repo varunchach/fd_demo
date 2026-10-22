@@ -2,7 +2,6 @@ import os
 from datetime import timedelta
 
 from feast import Entity, FeatureView, Field, FileSource
-from feast.data_format import CsvFormat
 from feast.types import Float32, Int64
 
 _bucket = os.environ.get("AWS_S3_BUCKET", "pipeline-artifacts")
@@ -13,9 +12,8 @@ transaction = Entity(name="transaction_id", join_keys=["transaction_id"])
 
 transaction_source = FileSource(
     name="transaction_source",
-    path=f"s3://{_bucket}/{_prefix}/transactions.csv",
+    path=f"s3://{_bucket}/{_prefix}/transactions.parquet",
     timestamp_field="event_timestamp",
-    file_format=CsvFormat(),
     s3_endpoint_override=_endpoint,
 )
 
