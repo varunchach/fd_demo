@@ -1,3 +1,4 @@
+"""Write Feast offline parquet into the ONLINE store (run inside Feast online pod)."""
 import io
 import os
 
@@ -6,7 +7,7 @@ import pandas as pd
 from botocore.client import Config
 from feast import FeatureStore
 
-ep = os.environ["AWS_S3_ENDPOINT"]
+ep = os.environ.get("AWS_ENDPOINT_URL") or os.environ["AWS_S3_ENDPOINT"]
 bucket = os.environ["AWS_S3_BUCKET"]
 key = (
     os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/")
@@ -26,7 +27,8 @@ print("loaded_rows", len(df), "cols", list(df.columns))
 if df["event_timestamp"].dt.tz is None:
     df["event_timestamp"] = df["event_timestamp"].dt.tz_localize("UTC")
 
-store = FeatureStore("/feast-data/fraud_detection/feature_repo")
+repo = os.environ.get("FEAST_REPO", "/feast-data/fraud_detection/feature_repo")
+store = FeatureStore(repo)
 store.write_to_online_store("fraud_features", df)
 print("write_to_online_store=OK")
 feats = store.get_online_features(

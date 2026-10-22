@@ -1,0 +1,63 @@
+# Load offline S3 parquet into Feast ONLINE (Postgres) via write_to_online_store.
+# Avoids s3fs/materialize path issues. Requires secret feast-offline-s3.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: materialize-online-script
+  namespace: fraud-detection
+data:
+  materialize_online.py: |
+    import io, os
+    import boto3, pandas as pd
+    from botocore.client import Config
+    from feast import FeatureStore
+    ep = os.environ["AWS_S3_ENDPOINT"]
+    bucket = os.environ["AWS_S3_BUCKET"]
+    key = os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/") + "/transactions.parquet"
+    c = boto3.client("s3", endpoint_url=ep, aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"], aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"], region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"), config=Config(s3={"addressing_style": "path"}))
+    df = pd.read_parquet(io.BytesIO(c.get_object(Bucket=bucket, Key=key)["Body"].read()))
+    print("loaded_rows", len(df), list(df.columns))
+    if hasattr(df["event_timestamp"].dtype, "tz") or str(df["event_timestamp"].dtype).startswith("datetime"):
+        if getattr(df["event_timestamp"].dt, "tz", None) is None:
+            df["event_timestamp"] = df["event_timestamp"].dt.tz_localize("UTC")
+    # Prefer repo path inside Feast pod; Job uses remote online via client config if present
+    repo = os.environ.get("FEAST_REPO", "/feast-data/fraud_detection/feature_repo")
+    store = FeatureStore(repo)
+    store.write_to_online_store("fraud_features", df)
+    print("write_to_online_store=OK")
+    sample = store.get_online_features(
+        features=["fraud_features:used_chip", "fraud_features:online_order"],
+        entity_rows=[{"transaction_id": 0}, {"transaction_id": 1}],
+    ).to_dict()
+    print("sample", sample)
+---
+# Run INSIDE the Feast deployment (has feature_repo + online Postgres config)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: materialize-feast-online
+  namespace: fraud-detection
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      # Share network/FS with Feast by exec pattern — use same image + mount client OR run via oc exec.
+      # This Job expects to be scheduled with access; preferred path is oc exec (see docs/ONESHOT.md).
+      containers:
+        - name: materialize
+          image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
+          envFrom:
+            - secretRef:
+                name: feast-offline-s3
+          env:
+            - name: HOME
+              value: /tmp
+            - name: FEAST_S3_PREFIX
+              value: fraud-detection/features
+          command: ["bash", "-c"]
+          args:
+            - |
+              echo "Prefer: oc exec into feast online pod — see scripts/materialize_online.sh"
+              exit 1

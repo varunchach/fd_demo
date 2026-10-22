@@ -1,0 +1,25 @@
+{{- if .Values.hooks.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fraud-pipeline-submitter
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fraud-pipeline-submitter-admin
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+subjects:
+  - kind: ServiceAccount
+    name: fraud-pipeline-submitter
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: admin
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

@@ -1,11 +1,12 @@
-{{- if .Values.pipelines.deployMariaDB }}
-# Lab-only DSPA metadata DB (MySQL/MariaDB). Customers: set deployMariaDB=false
-# and point pipelines.externalDb at their MySQL/MariaDB. Feast online uses Postgres separately.
+{{- if and .Values.pipelines.enabled .Values.pipelines.deployMariaDB }}
+# Lab-only DSPA metadata DB (MySQL/MariaDB). Feast online uses Postgres separately.
 apiVersion: v1
 kind: Secret
 metadata:
   name: fraud-db
   namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
 type: Opaque
 stringData:
   password: fraudmlops

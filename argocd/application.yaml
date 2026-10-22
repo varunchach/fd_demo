@@ -1,5 +1,6 @@
 # oc apply -f argocd/application.yaml
 # Deploys chart/ into fraud-detection (secrets must already exist in that NS).
+# See docs/GITOPS_DEMO.md
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -19,12 +20,18 @@ kind: Application
 metadata:
   name: fraud-detection
   namespace: openshift-gitops
+  # finalizer so delete cleans up namespaced resources
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
     repoURL: https://github.com/varunchach/fd_demo.git
     targetRevision: main
     path: chart
+    helm:
+      valueFiles:
+        - values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: fraud-detection
@@ -35,3 +42,10 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - RespectIgnoreDifferences=true
+    # Retry PostSync hooks if Feast/DSPA not Ready yet
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 3m

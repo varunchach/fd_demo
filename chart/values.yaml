@@ -1,27 +1,28 @@
-# Customer / lab values for fraud MLOps on OpenShift AI 3.5
-# Namespace comes from Argo CD / helm -n
+# GitOps / Argo CD values — Real-Time Fraud MLOps on OpenShift AI 3.5
+# Namespace comes from helm -n / Argo destination.namespace (fraud-detection)
 
 git:
   repoURL: https://github.com/varunchach/fd_demo.git
   revision: main
 
 # ---------------------------------------------------------------------------
-# 1) Pipeline artifacts S3  (DSPA object store — run logs, datasets, models)
+# DSPA (pipeline server)
 # ---------------------------------------------------------------------------
 pipelines:
+  enabled: true
   dspaName: fraud-detection-dspa
-  s3Host: s3.example.com                    # hostname only (no scheme)
+  # If true, chart creates MariaDB for DSPA metadata (MySQL-compatible; not Postgres)
+  deployMariaDB: true
+  s3Host: s3.example.com          # hostname only
   s3Port: "443"
   s3Scheme: https
   s3Bucket: pipeline-artifacts
   s3Region: us-east-1
-  # Secret must contain: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-  # (optional but recommended: AWS_DEFAULT_REGION)
   artifactsSecret: pipeline-artifacts
-
-  # DSPA metadata DB — MySQL/MariaDB compatible (NOT Postgres).
-  # Set deployMariaDB: false and fill externalDb when using customer MariaDB/MySQL.
-  deployMariaDB: true
+  # Disabled = SDK logging still works in train step; avoids nested-run plugin 409/runID bugs
+  # AUTODETECT = platform parent/nested MLflow runs (needs working MLflow workspace)
+  mlflowIntegrationMode: Disabled
+  injectUserEnvVars: true
   externalDb:
     host: ""
     port: "3306"
@@ -31,26 +32,39 @@ pipelines:
     passwordKey: password
 
 # ---------------------------------------------------------------------------
-# 2) Feast Feature Store
-#    - Online:  PostgreSQL (customer)
-#    - Offline: S3 parquet FileSource (customer offline bucket)
-#    - Registry: S3 file registry (same or separate bucket)
+# Feast Feature Store
 # ---------------------------------------------------------------------------
 featureStore:
+  enabled: true
   name: fraud-feature-store
   feastProject: fraud_detection
-
-  # Secret with FLAT postgres connection YAML (host/port/database/user/password).
-  # Do NOT wrap with online_store: — see examples/secrets/feast-online-postgres.yaml
   onlinePostgresSecret: feast-online-postgres
-  onlinePostgresSecretKey: feature_store.yaml   # key inside the secret
-
-  # Secret with AWS_* for Feast offline parquet + S3 registry
-  # (can be different from pipeline-artifacts)
+  onlinePostgresSecretKey: feature_store.yaml
   offlineS3Secret: feast-offline-s3
-  offlineS3Prefix: fraud-detection/features     # parquet under this prefix
-  registryS3Path: s3://feast-registry/fraud-detection/registry.db
+  offlineS3Prefix: fraud-detection/features
+  registryS3Path: s3://feature-store/fraud-detection/registry.db
+
+# ---------------------------------------------------------------------------
+# Argo CD PostSync hooks (seed → materialize → submit)
+# Wave 10 seed → 20 materialize online → 30 submit DSPA run
+# Set submitPipeline: false for platform-only sync (re-train via Job later).
+# ---------------------------------------------------------------------------
+hooks:
+  enabled: true
+  seedOffline: true
+  materializeOnline: true
+  submitPipeline: true
+  # OpenShift CLI for kubectl exec into Feast (materialize) + wait Services
+  cliImage: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+  notebookImage: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
+  mlflowTrackingUri: https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow
+  experimentName: fraud-detection-training
+  runNamePrefix: fraud-detection-gitops
+  # When using values-customer-existing-dspa.yaml (DSPA name "dspa"):
+  # dspaApiOverride: https://ds-pipeline-dspa.fraud-detection.svc.cluster.local:8443
+  # pipelineSaOverride: pipeline-runner-dspa
+  dspaApiOverride: ""
+  pipelineSaOverride: ""
 
 storage:
-  # kept for backward-compat aliases used in older templates
   pipelineArtifactsSecret: pipeline-artifacts

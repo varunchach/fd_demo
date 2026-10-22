@@ -1,0 +1,50 @@
+{{- if and .Values.hooks.enabled .Values.hooks.seedOffline }}
+# PostSync: upload offline parquet to Feast S3 (from git feature definitions / synthetic seed)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitops-seed-feast-offline
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: clone
+          image: alpine/git:2.45.2
+          command: ["sh", "-c"]
+          args:
+            - git clone --depth 1 --branch {{ .Values.git.revision }} {{ .Values.git.repoURL }} /repo
+          volumeMounts:
+            - name: repo
+              mountPath: /repo
+      containers:
+        - name: seed
+          image: {{ .Values.hooks.notebookImage | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.featureStore.offlineS3Secret }}
+          env:
+            - name: HOME
+              value: /tmp
+            - name: FEAST_S3_PREFIX
+              value: {{ .Values.featureStore.offlineS3Prefix | quote }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              pip install -q boto3 pyarrow scikit-learn pandas
+              python /repo/scripts/seed_feast_s3.py
+          volumeMounts:
+            - name: repo
+              mountPath: /repo
+      volumes:
+        - name: repo
+          emptyDir: {}
+{{- end }}

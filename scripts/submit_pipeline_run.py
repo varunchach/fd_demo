@@ -8,11 +8,12 @@ import urllib.request
 PIPELINE_FILE = os.environ.get("PIPELINE_FILE", "/pipeline/pipeline.yaml")
 API = os.environ.get(
     "DSPA_API",
-    "https://ds-pipeline-fraud-detection-dspa.fraud-mlops.svc:8888",
+    "https://ds-pipeline-fraud-detection-dspa.fraud-detection.svc.cluster.local:8443",
 ).rstrip("/")
-NAMESPACE = os.environ.get("NAMESPACE", "fraud-mlops")
-EXPERIMENT_NAME = os.environ.get("EXPERIMENT_NAME", "fraud-mlops")
-RUN_NAME = os.environ.get("RUN_NAME", "fraud-mlops-e2e")
+NAMESPACE = os.environ.get("NAMESPACE", "fraud-detection")
+EXPERIMENT_NAME = os.environ.get("EXPERIMENT_NAME", "fraud-detection")
+RUN_NAME = os.environ.get("RUN_NAME", "fraud-detection-e2e")
+PIPELINE_DISPLAY = os.environ.get("PIPELINE_DISPLAY_NAME", "fraud-mlops-pipeline")
 
 
 def _token() -> str:
@@ -29,7 +30,6 @@ def _ssl_context() -> ssl.SSLContext:
     else:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    # DSPA often serves with cluster CA that may not match hostname checks
     ctx.check_hostname = False
     return ctx
 
@@ -57,7 +57,7 @@ def ensure_experiment() -> str:
     payload = json.dumps(
         {
             "display_name": EXPERIMENT_NAME,
-            "description": "Fraud MLOps demo",
+            "description": "Fraud MLOps GitOps demo",
             "namespace": NAMESPACE,
         }
     ).encode()
@@ -66,7 +66,7 @@ def ensure_experiment() -> str:
     return body["experiment_id"]
 
 
-def _pipeline_ids(obj: dict) -> tuple[str | None, str | None]:
+def _pipeline_ids(obj: dict) -> tuple:
     pid = obj.get("pipeline_id")
     vid = obj.get("pipeline_version_id")
     if not pid and isinstance(obj.get("pipeline"), dict):
@@ -77,7 +77,7 @@ def _pipeline_ids(obj: dict) -> tuple[str | None, str | None]:
     return pid, vid
 
 
-def _multipart(yaml_bytes: bytes) -> tuple[bytes, str]:
+def _multipart(yaml_bytes: bytes) -> tuple:
     boundary = "----FraudBoundary7MA4YWxkTrZu0gW"
     body = (
         f"--{boundary}\r\n"
@@ -87,12 +87,12 @@ def _multipart(yaml_bytes: bytes) -> tuple[bytes, str]:
     return body, f"multipart/form-data; boundary={boundary}"
 
 
-def ensure_pipeline() -> tuple[str, str]:
+def ensure_pipeline() -> tuple:
     force_new = os.environ.get("UPLOAD_NEW_VERSION", "true").lower() in ("1", "true", "yes")
     status, body = _request("GET", f"/apis/v2beta1/pipelines?namespace={NAMESPACE}&page_size=100")
     existing = None
     for p in body.get("pipelines") or []:
-        if p.get("display_name") == "fraud-mlops-pipeline":
+        if p.get("display_name") == PIPELINE_DISPLAY:
             existing = p
             break
 
@@ -104,7 +104,7 @@ def ensure_pipeline() -> tuple[str, str]:
         pid = existing["pipeline_id"]
         path = (
             f"/apis/v2beta1/pipelines/upload_version"
-            f"?pipelineid={pid}&name=fraud-mlops-pipeline-{os.environ.get('RUN_NAME', 'v')}"
+            f"?pipelineid={pid}&name={PIPELINE_DISPLAY}-{os.environ.get('RUN_NAME', 'v')}"
         )
         req = urllib.request.Request(
             f"{API}{path}",
@@ -138,7 +138,7 @@ def ensure_pipeline() -> tuple[str, str]:
             print("reuse_pipeline", pid, vid)
             return pid, vid
 
-    path = f"/apis/v2beta1/pipelines/upload?namespace={NAMESPACE}&name=fraud-mlops-pipeline"
+    path = f"/apis/v2beta1/pipelines/upload?namespace={NAMESPACE}&name={PIPELINE_DISPLAY}"
     req = urllib.request.Request(
         f"{API}{path}",
         data=body_bytes,
@@ -168,6 +168,8 @@ def ensure_pipeline() -> tuple[str, str]:
 
 
 def create_run(experiment_id: str, pipeline_id: str, pipeline_version_id: str) -> str:
+    ns = NAMESPACE
+    feast_name = os.environ.get("FEAST_NAME", "fraud-feature-store")
     params = {
         "s3_endpoint": os.environ["AWS_S3_ENDPOINT"],
         "s3_bucket": os.environ["AWS_S3_BUCKET"],
@@ -175,26 +177,28 @@ def create_run(experiment_id: str, pipeline_id: str, pipeline_version_id: str) -
         "aws_secret_access_key": os.environ["AWS_SECRET_ACCESS_KEY"],
         "feast_online_server_url": os.environ.get(
             "FEAST_URL",
-            "https://feast-fraud-feature-store-online.fraud-mlops.svc.cluster.local:443",
+            f"https://feast-{feast_name}-online.{ns}.svc.cluster.local:443",
         ),
         "mlflow_tracking_uri": os.environ.get(
             "MLFLOW_TRACKING_URI",
             "https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow",
         ),
-        "s3_key": os.environ.get("S3_KEY", "fraud-mlops/raw/transactions.csv"),
+        "s3_key": os.environ.get("S3_KEY", "fraud-detection/raw/transactions.csv"),
         "mlflow_experiment": EXPERIMENT_NAME,
         "registry_server_address": os.environ.get("REGISTRY_SERVER_ADDRESS", ""),
     }
     payload = {
         "display_name": RUN_NAME,
-        "description": "E2E S3 -> Feast -> MLflow",
+        "description": "GitOps PostSync: S3 -> Feast -> MLflow",
         "experiment_id": experiment_id,
         "pipeline_version_reference": {
             "pipeline_id": pipeline_id,
             "pipeline_version_id": pipeline_version_id,
         },
         "runtime_config": {"parameters": params},
-        "service_account": os.environ.get("PIPELINE_SA", "pipeline-runner-fraud-detection-dspa"),
+        "service_account": os.environ.get(
+            "PIPELINE_SA", f"pipeline-runner-{os.environ.get('DSPA_NAME', 'fraud-detection-dspa')}"
+        ),
     }
     status, body = _request("POST", "/apis/v2beta1/runs", json.dumps(payload).encode(), "application/json")
     rid = body.get("run_id") or body.get("run", {}).get("run_id")

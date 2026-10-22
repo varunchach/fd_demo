@@ -1,42 +1,38 @@
-# One-shot deploy (GitOps)
+# One-shot CLI deploy (no Argo)
 
-Namespace: **fraud-detection**. Everything lives in this repo — no ad-hoc `sed`.
+Namespace: **fraud-detection**. Prefer **[GITOPS_DEMO.md](GITOPS_DEMO.md)** when OpenShift GitOps is available.
 
 ## Once: fill secrets + chart values
 
 ```bash
 git clone https://github.com/varunchach/fd_demo.git && cd fd_demo
 
-# edit REPLACE_ME / hosts / buckets
 vi examples/secrets/pipeline-artifacts.yaml
-vi examples/secrets/feast-offline-s3.yaml      # include AWS_ENDPOINT_URL + checksums
-vi examples/secrets/feast-online-postgres.yaml # FLAT host/database/user/password (no online_store:)
-
-vi chart/values.yaml   # pipelines.s3Host/s3Bucket + featureStore.registryS3Path
+vi examples/secrets/feast-offline-s3.yaml
+vi examples/secrets/feast-online-postgres.yaml
+vi chart/values.yaml
 
 oc new-project fraud-detection 2>/dev/null || oc project fraud-detection
 oc apply -f examples/secrets/ -n fraud-detection
 ```
 
-## Deploy + seed + submit pipeline (one command)
+## Deploy + seed + materialize + submit
 
 ```bash
-chmod +x scripts/oneshot.sh
+chmod +x scripts/oneshot.sh scripts/materialize_online.sh
 ./scripts/oneshot.sh
 ```
 
-Or GitOps only for platform, then oneshot for seed+submit:
+## GitOps-only platform, then oneshot for data path
 
 ```bash
-oc apply -f argocd/application.yaml   # Argo syncs chart/ → fraud-detection
-./scripts/oneshot.sh                  # still runs seed + submit (helm is idempotent)
+oc apply -f argocd/application.yaml   # Argo syncs chart/ (hooks may already run)
+# Or disable hooks in values, sync platform, then:
+./scripts/oneshot.sh
 ```
 
-## What Helm/Argo owns vs what oneshot triggers
+## What owns what
 
 | GitOps (chart / Argo) | oneshot.sh |
 |----------------------|------------|
-| DSPA, MariaDB, FeatureStore | Seed parquet Job |
-| | Upload pipeline + create run Job |
-
-A training **run** is always an explicit trigger (Job or UI) — Argo does not re-train on every sync by design.
+| DSPA, MariaDB, FeatureStore, hook Jobs | Same via helm + seed Job + materialize exec + submit Job |

@@ -1,3 +1,4 @@
+"""Seed Feast offline parquet to S3 (GitOps PostSync hook)."""
 import io
 import os
 from datetime import datetime, timedelta, timezone
@@ -29,12 +30,15 @@ df["transaction_id"] = df.index.astype("int64")
 now = datetime.now(timezone.utc)
 df["event_timestamp"] = [now - timedelta(minutes=(len(df) - i)) for i in range(len(df))]
 
-endpoint = os.environ["AWS_S3_ENDPOINT"]
+endpoint = os.environ.get("AWS_ENDPOINT_URL") or os.environ["AWS_S3_ENDPOINT"]
 bucket = os.environ["AWS_S3_BUCKET"]
-key = os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/") + "/transactions.csv"
+key = (
+    os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/")
+    + "/transactions.parquet"
+)
 
 buf = io.BytesIO()
-df.to_csv(buf, index=False)
+df.to_parquet(buf, index=False)
 buf.seek(0)
 
 client = boto3.client(

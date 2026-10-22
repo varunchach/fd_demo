@@ -1,8 +1,11 @@
+{{- if .Values.pipelines.enabled }}
 apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
 kind: DataSciencePipelinesApplication
 metadata:
   name: {{ .Values.pipelines.dspaName }}
   namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   dspVersion: v2
   apiServer:
@@ -48,5 +51,6 @@ spec:
         accessKey: AWS_ACCESS_KEY_ID
         secretKey: AWS_SECRET_ACCESS_KEY
   mlflow:
-    integrationMode: AUTODETECT
-    injectUserEnvVars: true
+    integrationMode: {{ .Values.pipelines.mlflowIntegrationMode }}
+    injectUserEnvVars: {{ .Values.pipelines.injectUserEnvVars }}
+{{- end }}

@@ -26,16 +26,22 @@ spec:
               value: fraud-detection
             - name: DSPA_API
               value: https://ds-pipeline-fraud-detection-dspa.fraud-detection.svc.cluster.local:8443
+            - name: DSPA_NAME
+              value: fraud-detection-dspa
             - name: FEAST_URL
               value: https://feast-fraud-feature-store-online.fraud-detection.svc.cluster.local:443
             - name: MLFLOW_TRACKING_URI
               value: https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow
             - name: PIPELINE_FILE
               value: /pipeline/pipeline.yaml
+            - name: EXPERIMENT_NAME
+              value: fraud-detection-training
             - name: RUN_NAME
               value: fraud-detection-e2e
             - name: PIPELINE_SA
               value: pipeline-runner-fraud-detection-dspa
+            - name: S3_KEY
+              value: fraud-detection/raw/transactions.csv
           command: ["python", "/scripts/submit_pipeline_run.py"]
           volumeMounts:
             - name: scripts

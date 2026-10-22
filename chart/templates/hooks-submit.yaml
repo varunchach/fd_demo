@@ -1,0 +1,101 @@
+{{- if and .Values.hooks.enabled .Values.hooks.submitPipeline }}
+{{- $ns := .Release.Namespace }}
+{{- $dspa := .Values.pipelines.dspaName }}
+{{- $api := printf "https://ds-pipeline-%s.%s.svc.cluster.local:8443" $dspa $ns }}
+{{- if .Values.hooks.dspaApiOverride }}
+{{- $api = .Values.hooks.dspaApiOverride }}
+{{- end }}
+{{- $sa := printf "pipeline-runner-%s" $dspa }}
+{{- if .Values.hooks.pipelineSaOverride }}
+{{- $sa = .Values.hooks.pipelineSaOverride }}
+{{- end }}
+{{- $feastUrl := printf "https://feast-%s-online.%s.svc.cluster.local:443" .Values.featureStore.name $ns }}
+# PostSync: clone git, upload compiled pipeline, create DSPA run (CLI).
+# Pipeline YAML stays in git (not Helm Files) to avoid KFP template placeholders.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitops-submit-fraud-pipeline
+  namespace: {{ $ns }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: fraud-pipeline-submitter
+      initContainers:
+        - name: wait-dspa
+          image: {{ .Values.hooks.cliImage | quote }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              NS={{ $ns | quote }}
+              {{- if .Values.hooks.dspaApiOverride }}
+              SVC=$(echo {{ .Values.hooks.dspaApiOverride | quote }} | sed -n 's|https://\([^./]*\).*|\1|p')
+              SVC="${SVC:-ds-pipeline-dspa}"
+              {{- else }}
+              SVC="ds-pipeline-{{ $dspa }}"
+              {{- end }}
+              echo "waiting for Service ${SVC}..."
+              for i in $(seq 1 90); do
+                if kubectl get svc "${SVC}" -n "${NS}" >/dev/null 2>&1; then
+                  echo "service ready"; exit 0
+                fi
+                sleep 10
+              done
+              echo "timeout waiting for ${SVC}"; exit 1
+        - name: clone
+          image: alpine/git:2.45.2
+          command: ["sh", "-c"]
+          args:
+            - git clone --depth 1 --branch {{ .Values.git.revision }} {{ .Values.git.repoURL }} /repo
+          volumeMounts:
+            - name: repo
+              mountPath: /repo
+      containers:
+        - name: submit
+          image: {{ .Values.hooks.notebookImage | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.storage.pipelineArtifactsSecret }}
+          env:
+            - name: HOME
+              value: /tmp
+            - name: NAMESPACE
+              value: {{ $ns | quote }}
+            - name: DSPA_API
+              value: {{ $api | quote }}
+            - name: DSPA_NAME
+              value: {{ $dspa | quote }}
+            - name: FEAST_URL
+              value: {{ $feastUrl | quote }}
+            - name: FEAST_NAME
+              value: {{ .Values.featureStore.name | quote }}
+            - name: MLFLOW_TRACKING_URI
+              value: {{ .Values.hooks.mlflowTrackingUri | quote }}
+            - name: PIPELINE_FILE
+              value: /repo/pipeline/pipeline.yaml
+            - name: EXPERIMENT_NAME
+              value: {{ .Values.hooks.experimentName | quote }}
+            - name: RUN_NAME
+              value: {{ printf "%s-r%d" .Values.hooks.runNamePrefix (int .Release.Revision) | quote }}
+            - name: PIPELINE_SA
+              value: {{ $sa | quote }}
+            - name: UPLOAD_NEW_VERSION
+              value: "true"
+            - name: S3_KEY
+              value: fraud-detection/raw/transactions.csv
+          command: ["python", "/repo/scripts/submit_pipeline_run.py"]
+          volumeMounts:
+            - name: repo
+              mountPath: /repo
+      volumes:
+        - name: repo
+          emptyDir: {}
+{{- end }}

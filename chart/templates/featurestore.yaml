@@ -1,3 +1,4 @@
+{{- if .Values.featureStore.enabled }}
 apiVersion: feast.dev/v1
 kind: FeatureStore
 metadata:
@@ -5,6 +6,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     feature-store-ui: enabled
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   feastProject: {{ .Values.featureStore.feastProject }}
   feastProjectDir:
@@ -73,3 +76,4 @@ spec:
           value: WHEN_REQUIRED
         - name: AWS_RESPONSE_CHECKSUM_VALIDATION
           value: WHEN_REQUIRED
+{{- end }}

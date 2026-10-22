@@ -1,0 +1,67 @@
+{{- if and .Values.hooks.enabled .Values.hooks.materializeOnline }}
+# PostSync: pipe materialize script into Feast ONLINE pod and write_to_online_store.
+# Matches the proven oc-exec path (Feast pod already has feature_repo + Postgres online).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitops-materialize-script
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+data:
+  materialize_online.py: |
+{{ .Files.Get "files/materialize_online.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitops-materialize-feast-online
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: fraud-pipeline-submitter
+      containers:
+        - name: materialize
+          image: {{ .Values.hooks.cliImage | quote }}
+          env:
+            - name: NS
+              value: {{ .Release.Namespace | quote }}
+            - name: FS_NAME
+              value: {{ .Values.featureStore.name | quote }}
+            - name: FEAST_S3_PREFIX
+              value: {{ .Values.featureStore.offlineS3Prefix | quote }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "waiting for FeatureStore ${FS_NAME} Ready..."
+              for i in $(seq 1 60); do
+                PHASE=$(kubectl get featurestore "${FS_NAME}" -n "${NS}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+                if [ "${PHASE}" = "Ready" ]; then break; fi
+                sleep 10
+              done
+              echo "phase=${PHASE:-unknown}"
+              POD=""
+              for i in $(seq 1 60); do
+                POD=$(kubectl get pod -n "${NS}" -l "feast.dev/name=${FS_NAME}" \
+                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+                READY=$(kubectl get pod -n "${NS}" "${POD}" -o jsonpath='{.status.containerStatuses[?(@.name=="online")].ready}' 2>/dev/null || true)
+                if [ -n "${POD}" ] && [ "${READY}" = "true" ]; then break; fi
+                sleep 10
+              done
+              if [ -z "${POD}" ]; then echo "no Feast pod"; exit 1; fi
+              echo "pod=${POD}"
+              kubectl get cm gitops-materialize-script -n "${NS}" \
+                -o jsonpath='{.data.materialize_online\.py}' \
+                | kubectl exec -i -n "${NS}" "${POD}" -c online -- tee /tmp/materialize_online.py >/dev/null
+              kubectl exec -n "${NS}" "${POD}" -c online -- bash -c \
+                "export FEAST_S3_PREFIX='${FEAST_S3_PREFIX}'; export FEAST_REPO=/feast-data/fraud_detection/feature_repo; python /tmp/materialize_online.py"
+{{- end }}
