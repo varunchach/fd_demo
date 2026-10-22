@@ -41,7 +41,7 @@ featureStore:
   onlinePostgresSecretKey: feature_store.yaml
   offlineS3Secret: fd-gitops-feast-s3
   offlineS3Prefix: fd-gitops/features
-  registryS3Path: s3://featurestore/fd-gitops/registry.db
+  registryS3Path: s3://feature_store/fd-gitops/registry.db
 
 # ---------------------------------------------------------------------------
 # Argo CD PostSync: seed → materialize → submit (all new Job names)
