@@ -13,10 +13,10 @@ pipelines:
   dspaName: fd-gitops-dspa
   deployMariaDB: true
   mariaDbName: fd-gitops-db
-  s3Host: s3.example.com
+  s3Host: bls3-rhoat-non-prod.bajajlife.com
   s3Port: "443"
   s3Scheme: https
-  s3Bucket: fd-gitops-pipeline
+  s3Bucket: kubeflow-pipelines
   s3Region: us-east-1
   artifactsSecret: fd-gitops-pipeline-s3
   mlflowIntegrationMode: Disabled
@@ -40,7 +40,7 @@ featureStore:
   onlinePostgresSecretKey: feature_store.yaml
   offlineS3Secret: fd-gitops-feast-s3
   offlineS3Prefix: fd-gitops/features
-  registryS3Path: s3://fd-gitops-features/fd-gitops/registry.db
+  registryS3Path: s3://featurestore/fd-gitops/registry.db
 
 # ---------------------------------------------------------------------------
 # Argo CD PostSync: seed → materialize → submit (all new Job names)
