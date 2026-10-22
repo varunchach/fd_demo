@@ -1,8 +1,6 @@
-# Site-specific S3 host/buckets live HERE as helm.parameters — not hardcoded in chart/values.yaml.
-# Change parameters for your environment; keep chart defaults empty/generic.
-#
-# Prerequisites: secrets in fd-gitops (FEAST_BUCKET must match featureStore.offlineS3Bucket).
-#   oc apply -f argocd/application.yaml
+# Generic Argo Application — NO site hosts/buckets in Git.
+# After secrets, run:  ./scripts/configure_argo_site.sh
+# That patches helm.parameters from your env (FEAST_BUCKET, PIPELINE_BUCKET, AWS_S3_ENDPOINT).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -44,15 +42,7 @@ spec:
     helm:
       valueFiles:
         - values.yaml
-      parameters:
-        # --- edit these for your site (not in chart defaults) ---
-        - name: pipelines.s3Host
-          value: bls3-rhoat-non-prod.bajajlife.com
-        - name: pipelines.s3Bucket
-          value: kubeflow-pipelines
-        - name: featureStore.offlineS3Bucket
-          value: feature-store
-        # registry path auto-builds: s3://feature-store/fd-gitops/registry.db
+      # parameters injected at runtime by scripts/configure_argo_site.sh
   destination:
     server: https://kubernetes.default.svc
     namespace: fd-gitops
