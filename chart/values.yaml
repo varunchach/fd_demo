@@ -19,7 +19,8 @@ pipelines:
   s3Bucket: kubeflow-pipelines
   s3Region: us-east-1
   artifactsSecret: fd-gitops-pipeline-s3
-  mlflowIntegrationMode: Disabled
+  # Must be uppercase: AUTODETECT | DISABLED (API rejects "Disabled")
+  mlflowIntegrationMode: DISABLED
   injectUserEnvVars: true
   externalDb:
     host: ""
