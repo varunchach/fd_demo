@@ -184,9 +184,18 @@ deploymentSpec:
           metadata\"][\"feature_names\"], [x[\"values\"] for x in body[\"results\"\
           ]]))\n            )\n        )\n\n    out = pd.concat(rows, ignore_index=True)\n\
           \    keep = [c for c in out.columns if c in names or c == \"transaction_id\"\
-          ]\n    out = out[keep].copy()\n    out[\"fraud\"] = labels[: len(out)]\n\
-          \    out.to_csv(output_data.path, index=False)\n    print(f\"Feature Store\
-          \ returned {len(out)} rows\")\n\n"
+          ]\n    out = out[keep].copy()\n    # Online store may be empty (no materialize)\
+          \ \u2014 fall back to ingest columns\n    raw_by_id = raw.set_index(\"transaction_id\"\
+          , drop=False)\n    for n in names:\n        if n not in out.columns:\n \
+          \           out[n] = float(\"nan\")\n        miss = out[n].isna() if n in\
+          \ out.columns else pd.Series([True] * len(out))\n        if miss.any() and\
+          \ n in raw.columns:\n            out.loc[miss, n] = (\n                out.loc[miss,\
+          \ \"transaction_id\"].map(raw_by_id[n]).to_numpy()\n                if \"\
+          transaction_id\" in out.columns\n                else raw[n].iloc[: miss.sum()].to_numpy()\n\
+          \            )\n    out[names] = out[names].apply(pd.to_numeric, errors=\"\
+          coerce\").fillna(0.0)\n    out[\"fraud\"] = labels[: len(out)]\n    out.to_csv(output_data.path,\
+          \ index=False)\n    print(f\"Feature Store returned {len(out)} rows (fillna/fallback\
+          \ applied)\")\n\n"
         image: python:3.11
     exec-train-log-register:
       container:
@@ -229,19 +238,20 @@ deploymentSpec:
           \n    names = [\n        \"distance_from_last_transaction\",\n        \"\
           ratio_to_median_purchase_price\",\n        \"used_chip\",\n        \"used_pin_number\"\
           ,\n        \"online_order\",\n        \"repeat_retailer\",\n    ]\n\n  \
-          \  df = pd.read_csv(input_data.path)\n    X, y = df[names], df[\"fraud\"\
-          ]\n    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42,\
-          \ stratify=y)\n    scaler = StandardScaler().fit(X_tr)\n    X_tr_s, X_te_s\
-          \ = scaler.transform(X_tr), scaler.transform(X_te)\n\n    # RHOAI MLflow\
-          \ (workspaces): X-MLFLOW-WORKSPACE + SA token.\n    # KFP injects KFP_MLFLOW_CONFIG\
-          \ when DSPA mlflow.integrationMode=AUTODETECT.\n    parent = None\n    kfp_mlflow\
-          \ = os.environ.get(\"KFP_MLFLOW_CONFIG\")\n    if kfp_mlflow:\n        cfg\
-          \ = json.loads(kfp_mlflow)\n        uri = cfg.get(\"endpoint\") or mlflow_tracking_uri\n\
-          \        workspace = cfg.get(\"workspace\") or os.environ.get(\"MLFLOW_WORKSPACE\"\
-          , \"fraud-mlops\")\n        os.environ[\"MLFLOW_TRACKING_URI\"] = uri\n\
-          \        os.environ[\"MLFLOW_WORKSPACE\"] = workspace\n        os.environ[\"\
-          MLFLOW_TRACKING_AUTH\"] = \"kubernetes-namespaced\"\n        os.environ[\"\
-          MLFLOW_TRACKING_INSECURE_TLS\"] = \"true\"\n        token_path = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\
+          \  df = pd.read_csv(input_data.path)\n    X = df[names].apply(pd.to_numeric,\
+          \ errors=\"coerce\").fillna(0.0)\n    y = df[\"fraud\"]\n    X_tr, X_te,\
+          \ y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)\n\
+          \    scaler = StandardScaler().fit(X_tr)\n    X_tr_s, X_te_s = scaler.transform(X_tr),\
+          \ scaler.transform(X_te)\n\n    # RHOAI MLflow (workspaces): X-MLFLOW-WORKSPACE\
+          \ + SA token.\n    # KFP injects KFP_MLFLOW_CONFIG when DSPA mlflow.integrationMode=AUTODETECT.\n\
+          \    parent = None\n    kfp_mlflow = os.environ.get(\"KFP_MLFLOW_CONFIG\"\
+          )\n    if kfp_mlflow:\n        cfg = json.loads(kfp_mlflow)\n        uri\
+          \ = cfg.get(\"endpoint\") or mlflow_tracking_uri\n        workspace = cfg.get(\"\
+          workspace\") or os.environ.get(\"MLFLOW_WORKSPACE\", \"fraud-mlops\")\n\
+          \        os.environ[\"MLFLOW_TRACKING_URI\"] = uri\n        os.environ[\"\
+          MLFLOW_WORKSPACE\"] = workspace\n        os.environ[\"MLFLOW_TRACKING_AUTH\"\
+          ] = \"kubernetes-namespaced\"\n        os.environ[\"MLFLOW_TRACKING_INSECURE_TLS\"\
+          ] = \"true\"\n        token_path = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\
           \n        if os.path.exists(token_path):\n            with open(token_path,\
           \ encoding=\"utf-8\") as tf:\n                os.environ[\"MLFLOW_TRACKING_TOKEN\"\
           ] = tf.read().strip()\n        mlflow.set_tracking_uri(uri)\n        exp_id\

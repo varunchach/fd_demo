@@ -122,9 +122,22 @@ def process_features(
     out = pd.concat(rows, ignore_index=True)
     keep = [c for c in out.columns if c in names or c == "transaction_id"]
     out = out[keep].copy()
+    # Online store may be empty (no materialize) — fall back to ingest columns
+    raw_by_id = raw.set_index("transaction_id", drop=False)
+    for n in names:
+        if n not in out.columns:
+            out[n] = float("nan")
+        miss = out[n].isna() if n in out.columns else pd.Series([True] * len(out))
+        if miss.any() and n in raw.columns:
+            out.loc[miss, n] = (
+                out.loc[miss, "transaction_id"].map(raw_by_id[n]).to_numpy()
+                if "transaction_id" in out.columns
+                else raw[n].iloc[: miss.sum()].to_numpy()
+            )
+    out[names] = out[names].apply(pd.to_numeric, errors="coerce").fillna(0.0)
     out["fraud"] = labels[: len(out)]
     out.to_csv(output_data.path, index=False)
-    print(f"Feature Store returned {len(out)} rows")
+    print(f"Feature Store returned {len(out)} rows (fillna/fallback applied)")
 
 
 @dsl.component(
@@ -168,7 +181,8 @@ def train_log_register(
     ]
 
     df = pd.read_csv(input_data.path)
-    X, y = df[names], df["fraud"]
+    X = df[names].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    y = df["fraud"]
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     scaler = StandardScaler().fit(X_tr)
     X_tr_s, X_te_s = scaler.transform(X_tr), scaler.transform(X_te)

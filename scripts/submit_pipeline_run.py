@@ -153,6 +153,14 @@ def ensure_pipeline() -> tuple[str, str]:
         raise RuntimeError(f"upload failed HTTP {e.code}: {err[:800]}") from e
     print("upload_response", json.dumps(uploaded)[:500])
     pid, vid = _pipeline_ids(uploaded)
+    if pid and not vid:
+        _, vers = _request(
+            "GET",
+            f"/apis/v2beta1/pipelines/{pid}/versions?page_size=5&sort_by=created_at%20desc",
+        )
+        versions = vers.get("pipeline_versions") or []
+        if versions:
+            vid = versions[0]["pipeline_version_id"]
     if not pid or not vid:
         raise RuntimeError(f"upload response missing ids: {uploaded}")
     print("uploaded_pipeline", pid, vid)
