@@ -17,8 +17,9 @@ Greenfield Argo CD stack. **Does not reuse** `fraud-detection`, existing `dspa`,
 ```bash
 git clone https://github.com/varunchach/fd_demo.git && cd fd_demo
 # set chart/values.yaml s3Host + buckets, push
-export PG_HOST=... PG_USER=... PG_PASSWORD=...
-./scripts/apply_fd_gitops_secrets.sh    # dual S3 (new buckets) + fresh Postgres
+export PG_HOST=... PG_PORT=6666 PG_USER=... PG_PASSWORD=...
+./scripts/apply_fd_gitops_secrets.sh    # dual S3 (new buckets) + Postgres (your port)
+./scripts/verify_feast_registry.sh     # after sync: registry/UI/offline wiring
 oc apply -f argocd/application.yaml     # GitOps → Applications → fd-gitops
 ```
 

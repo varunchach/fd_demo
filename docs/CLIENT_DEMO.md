@@ -50,9 +50,10 @@ Same S3 **keys + endpoint** as your working lab secret; **only bucket names** ch
 
 ```bash
 cd fd_demo
-chmod +x scripts/apply_fd_gitops_secrets.sh
+chmod +x scripts/apply_fd_gitops_secrets.sh scripts/verify_feast_registry.sh
 
 export PG_HOST='<postgres-host>'
+export PG_PORT='6666'                          # REQUIRED — your port (not assumed 5432)
 export PG_USER='<user>'
 export PG_PASSWORD='<password>'
 export PG_DATABASE='fd_gitops'                 # fresh DB
@@ -64,7 +65,30 @@ export SRC_NS='fraud-mlops' SRC_SECRET='feast-offline-s3'
 ./scripts/apply_fd_gitops_secrets.sh
 ```
 
-Verify:
+Confirm port landed in the secret:
+
+```bash
+oc get secret fd-gitops-feast-pg -n fd-gitops \
+  -o jsonpath='{.data.feature_store\.yaml}' | base64 -d | grep -E '^(host|port|database|user):'
+# port: 6666
+```
+
+### Offline + registry checklist (before / after Argo)
+
+| Must match | Where |
+|------------|--------|
+| Feast bucket name | Secret `fd-gitops-feast-s3` → `AWS_S3_BUCKET` **and** `chart/values.yaml` → `featureStore.registryS3Path` (`s3://<same-bucket>/fd-gitops/registry.db`) |
+| Offline parquet prefix | `featureStore.offlineS3Prefix` (`fd-gitops/features`) = seed Job + `features.py` FileSource |
+| Endpoint for Feast/boto3 | Secret has **`AWS_ENDPOINT_URL`** (not only `AWS_S3_ENDPOINT`) |
+| Registry + UI creds | Chart already sets `envFrom` on **online, registry, ui** → `fd-gitops-feast-s3` (no manual patch) |
+
+```bash
+# After FeatureStore exists (post Argo sync):
+./scripts/verify_feast_registry.sh
+# All OK = bucket matches registry path + envFrom on online/registry/ui + Ready
+```
+
+Verify secrets exist:
 
 ```bash
 oc get secret -n fd-gitops

@@ -3,22 +3,17 @@
 #
 # S3: same keys/endpoint as an existing secret (default: fraud-mlops/feast-offline-s3),
 #     only bucket names change.
-# Postgres: fresh values you pass in (required).
+# Postgres: YOU supply host/port/user/password (port is NOT assumed — e.g. 6666).
 #
 # Usage:
 #   export PG_HOST=postgres.example.com
+#   export PG_PORT=6666                 # REQUIRED — your listener port
 #   export PG_USER=feast
 #   export PG_PASSWORD='...'
-#   export PG_DATABASE=fd_gitops          # optional
-#   export PIPELINE_BUCKET=fd-gitops-pipeline   # optional
-#   export FEAST_BUCKET=fd-gitops-features      # optional
-#   # optional: copy S3 keys from another secret
+#   export PG_DATABASE=fd_gitops
+#   export PIPELINE_BUCKET=fd-gitops-pipeline
+#   export FEAST_BUCKET=fd-gitops-features
 #   export SRC_NS=fraud-mlops SRC_SECRET=feast-offline-s3
-#   ./scripts/apply_fd_gitops_secrets.sh
-#
-# Or paste all S3 values yourself (skips SRC copy):
-#   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_S3_ENDPOINT=https://...
-#   export PG_HOST=... PG_USER=... PG_PASSWORD=...
 #   ./scripts/apply_fd_gitops_secrets.sh
 set -euo pipefail
 
@@ -28,12 +23,12 @@ SRC_SECRET="${SRC_SECRET:-feast-offline-s3}"
 PIPELINE_BUCKET="${PIPELINE_BUCKET:-fd-gitops-pipeline}"
 FEAST_BUCKET="${FEAST_BUCKET:-fd-gitops-features}"
 PG_DATABASE="${PG_DATABASE:-fd_gitops}"
-PG_PORT="${PG_PORT:-5432}"
 PG_SCHEMA="${PG_SCHEMA:-public}"
 PG_SSLMODE="${PG_SSLMODE:-disable}"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 
-: "${PG_HOST:?set PG_HOST}"
+: "${PG_HOST:?set PG_HOST (Postgres hostname)}"
+: "${PG_PORT:?set PG_PORT (e.g. 5432 or 6666 — no default)}"
 : "${PG_USER:?set PG_USER}"
 : "${PG_PASSWORD:?set PG_PASSWORD}"
 
@@ -51,12 +46,12 @@ if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" || -z "${AW
   fi
 fi
 
-# hostname only for chart values hint
 S3_HOST="${AWS_S3_ENDPOINT#https://}"
 S3_HOST="${S3_HOST#http://}"
 S3_HOST="${S3_HOST%%/*}"
 
-echo "==> NS=$NS pipeline_bucket=$PIPELINE_BUCKET feast_bucket=$FEAST_BUCKET s3_host=$S3_HOST pg=$PG_HOST/$PG_DATABASE"
+echo "==> NS=$NS pipeline_bucket=$PIPELINE_BUCKET feast_bucket=$FEAST_BUCKET"
+echo "==> postgres ${PG_HOST}:${PG_PORT}/${PG_DATABASE} user=${PG_USER}"
 
 oc create secret generic fd-gitops-pipeline-s3 -n "$NS" \
   --from-literal=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
@@ -78,7 +73,6 @@ oc create secret generic fd-gitops-feast-s3 -n "$NS" \
   --from-literal=AWS_RESPONSE_CHECKSUM_VALIDATION=WHEN_REQUIRED \
   --dry-run=client -o yaml | oc apply -f -
 
-# Flat Feast online Postgres (no online_store: wrapper)
 oc create secret generic fd-gitops-feast-pg -n "$NS" \
   --from-literal=feature_store.yaml="$(cat <<EOF
 host: ${PG_HOST}
@@ -95,9 +89,14 @@ EOF
 echo "==> secrets ready:"
 oc get secret fd-gitops-pipeline-s3 fd-gitops-feast-s3 fd-gitops-feast-pg -n "$NS"
 echo ""
-echo "Set chart values before Argo sync:"
+echo "Confirm Postgres port in secret:"
+oc get secret fd-gitops-feast-pg -n "$NS" -o jsonpath='{.data.feature_store\.yaml}' | base64 -d | grep -E '^(host|port|database|user):'
+echo ""
+echo "Align chart/values.yaml then push:"
 echo "  pipelines.s3Host: ${S3_HOST}"
 echo "  pipelines.s3Bucket: ${PIPELINE_BUCKET}"
 echo "  featureStore.registryS3Path: s3://${FEAST_BUCKET}/fd-gitops/registry.db"
+echo "  featureStore.offlineS3Prefix: fd-gitops/features"
 echo ""
+echo "Verify registry wiring: ./scripts/verify_feast_registry.sh"
 echo "Next: oc apply -f argocd/application.yaml"
