@@ -33,7 +33,7 @@ df["event_timestamp"] = [now - timedelta(minutes=(len(df) - i)) for i in range(l
 endpoint = os.environ.get("AWS_ENDPOINT_URL") or os.environ["AWS_S3_ENDPOINT"]
 bucket = os.environ["AWS_S3_BUCKET"]
 key = (
-    os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/")
+    os.environ.get("FEAST_S3_PREFIX", "fd-gitops/features").strip("/")
     + "/transactions.parquet"
 )
 

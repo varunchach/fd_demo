@@ -1,9 +1,8 @@
 {{- if and .Values.hooks.enabled .Values.hooks.seedOffline }}
-# PostSync: upload offline parquet to Feast S3 (from git feature definitions / synthetic seed)
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gitops-seed-feast-offline
+  name: fd-gitops-seed-offline
   namespace: {{ .Release.Namespace }}
   annotations:
     argocd.argoproj.io/hook: PostSync

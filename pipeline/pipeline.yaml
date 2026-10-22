@@ -1,18 +1,18 @@
 # PIPELINE DEFINITION
-# Name: fraud-mlops-pipeline
-# Description: S3 -> Feature Store -> Train/MLflow/Registry
+# Name: fd-gitops-pipeline
+# Description: S3 -> Feature Store -> Train/MLflow (fd-gitops)
 # Inputs:
 #    aws_access_key_id: str
 #    aws_secret_access_key: str
 #    feast_online_server_url: str
-#    mlflow_experiment: str [Default: 'fraud-mlops']
+#    mlflow_experiment: str [Default: 'fd-gitops-training']
 #    mlflow_tracking_uri: str
-#    model_name: str [Default: 'fraud-detection']
+#    model_name: str [Default: 'fd-gitops-model']
 #    model_version: str [Default: '1.0.0']
 #    registry_server_address: str [Default: '']
 #    s3_bucket: str
 #    s3_endpoint: str
-#    s3_key: str [Default: 'fraud-mlops/raw/transactions.csv']
+#    s3_key: str [Default: 'fd-gitops/raw/transactions.csv']
 components:
   comp-ingest-from-s3:
     executorLabel: exec-ingest-from-s3
@@ -65,7 +65,7 @@ components:
         mlflow_tracking_uri:
           parameterType: STRING
         model_name:
-          defaultValue: fraud-detection
+          defaultValue: fd-gitops-model
           isOptional: true
           parameterType: STRING
         model_version:
@@ -228,7 +228,7 @@ deploymentSpec:
           \ *\n\ndef train_log_register(\n    input_data: dsl.Input[dsl.Dataset],\n\
           \    model_out: dsl.Output[dsl.Model],\n    mlflow_tracking_uri: str,\n\
           \    mlflow_experiment: str,\n    registry_server_address: str = \"\",\n\
-          \    model_name: str = \"fraud-detection\",\n    model_version: str = \"\
+          \    model_name: str = \"fd-gitops-model\",\n    model_version: str = \"\
           1.0.0\",\n):\n    \"\"\"Step 3: Train sklearn model, log to MLflow, optionally\
           \ register.\"\"\"\n    import json\n    import os\n    import pickle\n\n\
           \    import mlflow\n    import mlflow.sklearn\n    import pandas as pd\n\
@@ -247,8 +247,8 @@ deploymentSpec:
           \    parent = None\n    kfp_mlflow = os.environ.get(\"KFP_MLFLOW_CONFIG\"\
           )\n    if kfp_mlflow:\n        cfg = json.loads(kfp_mlflow)\n        uri\
           \ = cfg.get(\"endpoint\") or mlflow_tracking_uri\n        workspace = cfg.get(\"\
-          workspace\") or os.environ.get(\"MLFLOW_WORKSPACE\", \"fraud-mlops\")\n\
-          \        os.environ[\"MLFLOW_TRACKING_URI\"] = uri\n        os.environ[\"\
+          workspace\") or os.environ.get(\"MLFLOW_WORKSPACE\", \"fd-gitops\")\n  \
+          \      os.environ[\"MLFLOW_TRACKING_URI\"] = uri\n        os.environ[\"\
           MLFLOW_WORKSPACE\"] = workspace\n        os.environ[\"MLFLOW_TRACKING_AUTH\"\
           ] = \"kubernetes-namespaced\"\n        os.environ[\"MLFLOW_TRACKING_INSECURE_TLS\"\
           ] = \"true\"\n        token_path = \"/var/run/secrets/kubernetes.io/serviceaccount/token\"\
@@ -262,11 +262,11 @@ deploymentSpec:
           \n        # Allow callers to pass a cluster URI with workspace via env\n\
           \        if uri.startswith(\"http\") and \"MLFLOW_WORKSPACE\" not in os.environ:\n\
           \            os.environ[\"MLFLOW_WORKSPACE\"] = os.environ.get(\"NAMESPACE\"\
-          , \"fraud-mlops\")\n            os.environ[\"MLFLOW_TRACKING_AUTH\"] = \"\
+          , \"fd-gitops\")\n            os.environ[\"MLFLOW_TRACKING_AUTH\"] = \"\
           kubernetes-namespaced\"\n            os.environ[\"MLFLOW_TRACKING_INSECURE_TLS\"\
           ] = \"true\"\n        mlflow.set_tracking_uri(uri)\n        mlflow.set_experiment(mlflow_experiment)\n\
-          \n    run_ctx = (\n        mlflow.start_run(run_name=\"fraud-mlops\", parent_run_id=parent)\n\
-          \        if parent\n        else mlflow.start_run(run_name=\"fraud-mlops\"\
+          \n    run_ctx = (\n        mlflow.start_run(run_name=\"fd-gitops\", parent_run_id=parent)\n\
+          \        if parent\n        else mlflow.start_run(run_name=\"fd-gitops\"\
           )\n    )\n\n    with run_ctx as run:\n        model = LogisticRegression(max_iter=200,\
           \ class_weight=\"balanced\")\n        model.fit(X_tr_s, y_tr)\n        pred\
           \ = model.predict(X_te_s)\n        metrics = {\n            \"accuracy\"\
@@ -280,16 +280,16 @@ deploymentSpec:
           \ f)\n    model_out.metadata.update({\"mlflow_run_id\": run_id, **metrics})\n\
           \    print(f\"MLflow run={run_id} metrics={metrics}\")\n\n    if registry_server_address:\n\
           \        from model_registry import ModelRegistry\n\n        reg = ModelRegistry(server_address=registry_server_address,\
-          \ port=443, author=\"fraud-mlops\")\n        v = reg.register_model(\n \
-          \           name=model_name,\n            uri=artifact_uri,\n          \
-          \  version=model_version,\n            model_format_name=\"sklearn\",\n\
-          \            model_format_version=\"1\",\n            metadata={\"mlflow_run_id\"\
-          : run_id, **metrics},\n        )\n        print(f\"Registered {model_name}\
-          \ id={getattr(v, 'id', model_version)}\")\n\n"
+          \ port=443, author=\"fd-gitops\")\n        v = reg.register_model(\n   \
+          \         name=model_name,\n            uri=artifact_uri,\n            version=model_version,\n\
+          \            model_format_name=\"sklearn\",\n            model_format_version=\"\
+          1\",\n            metadata={\"mlflow_run_id\": run_id, **metrics},\n   \
+          \     )\n        print(f\"Registered {model_name} id={getattr(v, 'id', model_version)}\"\
+          )\n\n"
         image: python:3.11
 pipelineInfo:
-  description: S3 -> Feature Store -> Train/MLflow/Registry
-  name: fraud-mlops-pipeline
+  description: S3 -> Feature Store -> Train/MLflow (fd-gitops)
+  name: fd-gitops-pipeline
 root:
   dag:
     tasks:
@@ -365,13 +365,13 @@ root:
       feast_online_server_url:
         parameterType: STRING
       mlflow_experiment:
-        defaultValue: fraud-mlops
+        defaultValue: fd-gitops-training
         isOptional: true
         parameterType: STRING
       mlflow_tracking_uri:
         parameterType: STRING
       model_name:
-        defaultValue: fraud-detection
+        defaultValue: fd-gitops-model
         isOptional: true
         parameterType: STRING
       model_version:
@@ -387,7 +387,7 @@ root:
       s3_endpoint:
         parameterType: STRING
       s3_key:
-        defaultValue: fraud-mlops/raw/transactions.csv
+        defaultValue: fd-gitops/raw/transactions.csv
         isOptional: true
         parameterType: STRING
 schemaVersion: 2.1.0

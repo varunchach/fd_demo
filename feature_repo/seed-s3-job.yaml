@@ -1,61 +1,44 @@
-# Seeds Feast OFFLINE parquet into the feast-offline-s3 bucket.
-# Requires secret feast-offline-s3 (AWS_S3_ENDPOINT, AWS_S3_BUCKET, keys).
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: seed-feast-script
-  namespace: fraud-detection
-data:
-  seed.py: |
-    import io, os
-    from datetime import datetime, timedelta, timezone
-    import boto3, pandas as pd
-    from botocore.client import Config
-    from sklearn.datasets import make_classification
-    names = ["distance_from_last_transaction","ratio_to_median_purchase_price","used_chip","used_pin_number","online_order","repeat_retailer"]
-    X,_ = make_classification(n_samples=100,n_features=6,n_informative=4,n_redundant=0,weights=[0.9,0.1],class_sep=1.2,random_state=42)
-    df = pd.DataFrame(X, columns=names)
-    df["transaction_id"] = df.index.astype("int64")
-    now = datetime.now(timezone.utc)
-    df["event_timestamp"] = [now - timedelta(minutes=(len(df)-i)) for i in range(len(df))]
-    endpoint, bucket = os.environ["AWS_S3_ENDPOINT"], os.environ["AWS_S3_BUCKET"]
-    key = os.environ.get("FEAST_S3_PREFIX","fraud-detection/features").strip("/") + "/transactions.parquet"
-    buf = io.BytesIO(); df.to_parquet(buf, index=False); buf.seek(0)
-    c = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"], aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"], region_name=os.environ.get("AWS_DEFAULT_REGION","us-east-1"), config=Config(s3={"addressing_style":"path"}))
-    try: c.head_bucket(Bucket=bucket)
-    except Exception: c.create_bucket(Bucket=bucket)
-    c.put_object(Bucket=bucket, Key=key, Body=buf.getvalue())
-    print("Uploaded s3://%s/%s (%d rows)" % (bucket, key, len(df)))
----
+# Manual seed Job for oneshot.sh (Argo uses PostSync Job fd-gitops-seed-offline).
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: seed-features-to-s3
-  namespace: fraud-detection
+  name: fd-gitops-seed-offline-manual
+  namespace: fd-gitops
 spec:
   ttlSecondsAfterFinished: 600
   backoffLimit: 3
   template:
     spec:
       restartPolicy: OnFailure
+      initContainers:
+        - name: clone
+          image: alpine/git:2.45.2
+          command: ["sh", "-c"]
+          args:
+            - git clone --depth 1 --branch main https://github.com/varunchach/fd_demo.git /repo
+          volumeMounts:
+            - name: repo
+              mountPath: /repo
       containers:
         - name: seed
           image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
           envFrom:
             - secretRef:
-                name: feast-offline-s3
+                name: fd-gitops-feast-s3
           env:
             - name: HOME
               value: /tmp
             - name: FEAST_S3_PREFIX
-              value: fraud-detection/features
+              value: fd-gitops/features
           command: ["bash", "-c"]
           args:
-            - pip install -q boto3 pyarrow && python /scripts/seed.py
+            - |
+              set -euo pipefail
+              pip install -q boto3 pyarrow scikit-learn pandas
+              python /repo/scripts/seed_feast_s3.py
           volumeMounts:
-            - name: script
-              mountPath: /scripts
+            - name: repo
+              mountPath: /repo
       volumes:
-        - name: script
-          configMap:
-            name: seed-feast-script
+        - name: repo
+          emptyDir: {}

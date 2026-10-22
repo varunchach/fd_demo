@@ -1,4 +1,4 @@
-"""Upload fraud-mlops-pipeline (if needed) and create a run against DSPA."""
+"""Upload fd-gitops-pipeline and create a run against THIS demo's DSPA."""
 import json
 import os
 import ssl
@@ -8,12 +8,12 @@ import urllib.request
 PIPELINE_FILE = os.environ.get("PIPELINE_FILE", "/pipeline/pipeline.yaml")
 API = os.environ.get(
     "DSPA_API",
-    "https://ds-pipeline-fraud-detection-dspa.fraud-detection.svc.cluster.local:8443",
+    "https://ds-pipeline-fd-gitops-dspa.fd-gitops.svc.cluster.local:8443",
 ).rstrip("/")
-NAMESPACE = os.environ.get("NAMESPACE", "fraud-detection")
-EXPERIMENT_NAME = os.environ.get("EXPERIMENT_NAME", "fraud-detection")
-RUN_NAME = os.environ.get("RUN_NAME", "fraud-detection-e2e")
-PIPELINE_DISPLAY = os.environ.get("PIPELINE_DISPLAY_NAME", "fraud-mlops-pipeline")
+NAMESPACE = os.environ.get("NAMESPACE", "fd-gitops")
+EXPERIMENT_NAME = os.environ.get("EXPERIMENT_NAME", "fd-gitops-training")
+RUN_NAME = os.environ.get("RUN_NAME", "fd-gitops-e2e")
+PIPELINE_DISPLAY = os.environ.get("PIPELINE_DISPLAY_NAME", "fd-gitops-pipeline")
 
 
 def _token() -> str:
@@ -57,7 +57,7 @@ def ensure_experiment() -> str:
     payload = json.dumps(
         {
             "display_name": EXPERIMENT_NAME,
-            "description": "Fraud MLOps GitOps demo",
+            "description": "fd-gitops independent demo",
             "namespace": NAMESPACE,
         }
     ).encode()
@@ -78,7 +78,7 @@ def _pipeline_ids(obj: dict) -> tuple:
 
 
 def _multipart(yaml_bytes: bytes) -> tuple:
-    boundary = "----FraudBoundary7MA4YWxkTrZu0gW"
+    boundary = "----FdGitopsBoundary7MA4YWxkTrZu0gW"
     body = (
         f"--{boundary}\r\n"
         f'Content-Disposition: form-data; name="uploadfile"; filename="pipeline.yaml"\r\n'
@@ -169,7 +169,7 @@ def ensure_pipeline() -> tuple:
 
 def create_run(experiment_id: str, pipeline_id: str, pipeline_version_id: str) -> str:
     ns = NAMESPACE
-    feast_name = os.environ.get("FEAST_NAME", "fraud-feature-store")
+    feast_name = os.environ.get("FEAST_NAME", "fd-gitops-fs")
     params = {
         "s3_endpoint": os.environ["AWS_S3_ENDPOINT"],
         "s3_bucket": os.environ["AWS_S3_BUCKET"],
@@ -183,13 +183,14 @@ def create_run(experiment_id: str, pipeline_id: str, pipeline_version_id: str) -
             "MLFLOW_TRACKING_URI",
             "https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow",
         ),
-        "s3_key": os.environ.get("S3_KEY", "fraud-detection/raw/transactions.csv"),
+        "s3_key": os.environ.get("S3_KEY", "fd-gitops/raw/transactions.csv"),
         "mlflow_experiment": EXPERIMENT_NAME,
         "registry_server_address": os.environ.get("REGISTRY_SERVER_ADDRESS", ""),
+        "model_name": "fd-gitops-model",
     }
     payload = {
         "display_name": RUN_NAME,
-        "description": "GitOps PostSync: S3 -> Feast -> MLflow",
+        "description": "fd-gitops PostSync: S3 -> Feast -> MLflow",
         "experiment_id": experiment_id,
         "pipeline_version_reference": {
             "pipeline_id": pipeline_id,
@@ -197,7 +198,7 @@ def create_run(experiment_id: str, pipeline_id: str, pipeline_version_id: str) -
         },
         "runtime_config": {"parameters": params},
         "service_account": os.environ.get(
-            "PIPELINE_SA", f"pipeline-runner-{os.environ.get('DSPA_NAME', 'fraud-detection-dspa')}"
+            "PIPELINE_SA", f"pipeline-runner-{os.environ.get('DSPA_NAME', 'fd-gitops-dspa')}"
         ),
     }
     status, body = _request("POST", "/apis/v2beta1/runs", json.dumps(payload).encode(), "application/json")

@@ -2,20 +2,12 @@
 {{- $ns := .Release.Namespace }}
 {{- $dspa := .Values.pipelines.dspaName }}
 {{- $api := printf "https://ds-pipeline-%s.%s.svc.cluster.local:8443" $dspa $ns }}
-{{- if .Values.hooks.dspaApiOverride }}
-{{- $api = .Values.hooks.dspaApiOverride }}
-{{- end }}
 {{- $sa := printf "pipeline-runner-%s" $dspa }}
-{{- if .Values.hooks.pipelineSaOverride }}
-{{- $sa = .Values.hooks.pipelineSaOverride }}
-{{- end }}
 {{- $feastUrl := printf "https://feast-%s-online.%s.svc.cluster.local:443" .Values.featureStore.name $ns }}
-# PostSync: clone git, upload compiled pipeline, create DSPA run (CLI).
-# Pipeline YAML stays in git (not Helm Files) to avoid KFP template placeholders.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gitops-submit-fraud-pipeline
+  name: fd-gitops-submit-pipeline
   namespace: {{ $ns }}
   annotations:
     argocd.argoproj.io/hook: PostSync
@@ -27,7 +19,7 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
-      serviceAccountName: fraud-pipeline-submitter
+      serviceAccountName: {{ .Values.hooks.submitterSa }}
       initContainers:
         - name: wait-dspa
           image: {{ .Values.hooks.cliImage | quote }}
@@ -36,12 +28,7 @@ spec:
             - |
               set -euo pipefail
               NS={{ $ns | quote }}
-              {{- if .Values.hooks.dspaApiOverride }}
-              SVC=$(echo {{ .Values.hooks.dspaApiOverride | quote }} | sed -n 's|https://\([^./]*\).*|\1|p')
-              SVC="${SVC:-ds-pipeline-dspa}"
-              {{- else }}
               SVC="ds-pipeline-{{ $dspa }}"
-              {{- end }}
               echo "waiting for Service ${SVC}..."
               for i in $(seq 1 90); do
                 if kubectl get svc "${SVC}" -n "${NS}" >/dev/null 2>&1; then
@@ -81,6 +68,8 @@ spec:
               value: {{ .Values.hooks.mlflowTrackingUri | quote }}
             - name: PIPELINE_FILE
               value: /repo/pipeline/pipeline.yaml
+            - name: PIPELINE_DISPLAY_NAME
+              value: {{ .Values.hooks.pipelineDisplayName | quote }}
             - name: EXPERIMENT_NAME
               value: {{ .Values.hooks.experimentName | quote }}
             - name: RUN_NAME
@@ -90,7 +79,7 @@ spec:
             - name: UPLOAD_NEW_VERSION
               value: "true"
             - name: S3_KEY
-              value: fraud-detection/raw/transactions.csv
+              value: {{ .Values.hooks.s3RawKey | quote }}
           command: ["python", "/repo/scripts/submit_pipeline_run.py"]
           volumeMounts:
             - name: repo

@@ -1,26 +1,24 @@
-# GitOps / Argo CD values — Real-Time Fraud MLOps on OpenShift AI 3.5
-# Namespace comes from helm -n / Argo destination.namespace (fraud-detection)
+# Greenfield GitOps demo — nothing shared with prior fraud-detection / dspa runs.
+# Destination namespace: fd-gitops (Argo Application + helm -n)
 
 git:
   repoURL: https://github.com/varunchach/fd_demo.git
   revision: main
 
 # ---------------------------------------------------------------------------
-# DSPA (pipeline server)
+# DSPA (always created by this chart — do not point at an existing DSPA)
 # ---------------------------------------------------------------------------
 pipelines:
   enabled: true
-  dspaName: fraud-detection-dspa
-  # If true, chart creates MariaDB for DSPA metadata (MySQL-compatible; not Postgres)
+  dspaName: fd-gitops-dspa
   deployMariaDB: true
-  s3Host: s3.example.com          # hostname only
+  mariaDbName: fd-gitops-db
+  s3Host: s3.example.com
   s3Port: "443"
   s3Scheme: https
-  s3Bucket: pipeline-artifacts
+  s3Bucket: fd-gitops-pipeline
   s3Region: us-east-1
-  artifactsSecret: pipeline-artifacts
-  # Disabled = SDK logging still works in train step; avoids nested-run plugin 409/runID bugs
-  # AUTODETECT = platform parent/nested MLflow runs (needs working MLflow workspace)
+  artifactsSecret: fd-gitops-pipeline-s3
   mlflowIntegrationMode: Disabled
   injectUserEnvVars: true
   externalDb:
@@ -28,43 +26,38 @@ pipelines:
     port: "3306"
     username: mlpipeline
     database: mlpipeline
-    passwordSecret: fraud-db
+    passwordSecret: fd-gitops-db
     passwordKey: password
 
 # ---------------------------------------------------------------------------
-# Feast Feature Store
+# Feast Feature Store (new name + new S3 prefix + new registry path)
 # ---------------------------------------------------------------------------
 featureStore:
   enabled: true
-  name: fraud-feature-store
-  feastProject: fraud_detection
-  onlinePostgresSecret: feast-online-postgres
+  name: fd-gitops-fs
+  feastProject: fd_gitops
+  onlinePostgresSecret: fd-gitops-feast-pg
   onlinePostgresSecretKey: feature_store.yaml
-  offlineS3Secret: feast-offline-s3
-  offlineS3Prefix: fraud-detection/features
-  registryS3Path: s3://feature-store/fraud-detection/registry.db
+  offlineS3Secret: fd-gitops-feast-s3
+  offlineS3Prefix: fd-gitops/features
+  registryS3Path: s3://fd-gitops-features/fd-gitops/registry.db
 
 # ---------------------------------------------------------------------------
-# Argo CD PostSync hooks (seed → materialize → submit)
-# Wave 10 seed → 20 materialize online → 30 submit DSPA run
-# Set submitPipeline: false for platform-only sync (re-train via Job later).
+# Argo CD PostSync: seed → materialize → submit (all new Job names)
 # ---------------------------------------------------------------------------
 hooks:
   enabled: true
   seedOffline: true
   materializeOnline: true
   submitPipeline: true
-  # OpenShift CLI for kubectl exec into Feast (materialize) + wait Services
   cliImage: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
   notebookImage: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
   mlflowTrackingUri: https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow
-  experimentName: fraud-detection-training
-  runNamePrefix: fraud-detection-gitops
-  # When using values-customer-existing-dspa.yaml (DSPA name "dspa"):
-  # dspaApiOverride: https://ds-pipeline-dspa.fraud-detection.svc.cluster.local:8443
-  # pipelineSaOverride: pipeline-runner-dspa
-  dspaApiOverride: ""
-  pipelineSaOverride: ""
+  experimentName: fd-gitops-training
+  runNamePrefix: fd-gitops-run
+  pipelineDisplayName: fd-gitops-pipeline
+  submitterSa: fd-gitops-submitter
+  s3RawKey: fd-gitops/raw/transactions.csv
 
 storage:
-  pipelineArtifactsSecret: pipeline-artifacts
+  pipelineArtifactsSecret: fd-gitops-pipeline-s3

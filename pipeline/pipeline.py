@@ -155,7 +155,7 @@ def train_log_register(
     mlflow_tracking_uri: str,
     mlflow_experiment: str,
     registry_server_address: str = "",
-    model_name: str = "fraud-detection",
+    model_name: str = "fd-gitops-model",
     model_version: str = "1.0.0",
 ):
     """Step 3: Train sklearn model, log to MLflow, optionally register."""
@@ -194,7 +194,7 @@ def train_log_register(
     if kfp_mlflow:
         cfg = json.loads(kfp_mlflow)
         uri = cfg.get("endpoint") or mlflow_tracking_uri
-        workspace = cfg.get("workspace") or os.environ.get("MLFLOW_WORKSPACE", "fraud-mlops")
+        workspace = cfg.get("workspace") or os.environ.get("MLFLOW_WORKSPACE", "fd-gitops")
         os.environ["MLFLOW_TRACKING_URI"] = uri
         os.environ["MLFLOW_WORKSPACE"] = workspace
         os.environ["MLFLOW_TRACKING_AUTH"] = "kubernetes-namespaced"
@@ -216,16 +216,16 @@ def train_log_register(
             uri = "sqlite:////tmp/mlflow-fraud.db"
         # Allow callers to pass a cluster URI with workspace via env
         if uri.startswith("http") and "MLFLOW_WORKSPACE" not in os.environ:
-            os.environ["MLFLOW_WORKSPACE"] = os.environ.get("NAMESPACE", "fraud-mlops")
+            os.environ["MLFLOW_WORKSPACE"] = os.environ.get("NAMESPACE", "fd-gitops")
             os.environ["MLFLOW_TRACKING_AUTH"] = "kubernetes-namespaced"
             os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
         mlflow.set_tracking_uri(uri)
         mlflow.set_experiment(mlflow_experiment)
 
     run_ctx = (
-        mlflow.start_run(run_name="fraud-mlops", parent_run_id=parent)
+        mlflow.start_run(run_name="fd-gitops", parent_run_id=parent)
         if parent
-        else mlflow.start_run(run_name="fraud-mlops")
+        else mlflow.start_run(run_name="fd-gitops")
     )
 
     with run_ctx as run:
@@ -251,7 +251,7 @@ def train_log_register(
     if registry_server_address:
         from model_registry import ModelRegistry
 
-        reg = ModelRegistry(server_address=registry_server_address, port=443, author="fraud-mlops")
+        reg = ModelRegistry(server_address=registry_server_address, port=443, author="fd-gitops")
         v = reg.register_model(
             name=model_name,
             uri=artifact_uri,
@@ -263,18 +263,18 @@ def train_log_register(
         print(f"Registered {model_name} id={getattr(v, 'id', model_version)}")
 
 
-@dsl.pipeline(name="fraud-mlops-pipeline", description="S3 -> Feature Store -> Train/MLflow/Registry")
-def fraud_mlops_pipeline(
+@dsl.pipeline(name="fd-gitops-pipeline", description="S3 -> Feature Store -> Train/MLflow (fd-gitops)")
+def fd_gitops_pipeline(
     s3_endpoint: str,
     s3_bucket: str,
     aws_access_key_id: str,
     aws_secret_access_key: str,
     feast_online_server_url: str,
     mlflow_tracking_uri: str,
-    s3_key: str = "fraud-mlops/raw/transactions.csv",
-    mlflow_experiment: str = "fraud-mlops",
+    s3_key: str = "fd-gitops/raw/transactions.csv",
+    mlflow_experiment: str = "fd-gitops-training",
     registry_server_address: str = "",
-    model_name: str = "fraud-detection",
+    model_name: str = "fd-gitops-model",
     model_version: str = "1.0.0",
 ):
     raw = ingest_from_s3(
@@ -300,5 +300,5 @@ def fraud_mlops_pipeline(
 
 if __name__ == "__main__":
     out = __file__.replace(".py", ".yaml")
-    compiler.Compiler().compile(fraud_mlops_pipeline, out)
+    compiler.Compiler().compile(fd_gitops_pipeline, out)
     print(f"Compiled {out}")

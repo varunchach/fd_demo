@@ -10,7 +10,7 @@ from feast import FeatureStore
 ep = os.environ.get("AWS_ENDPOINT_URL") or os.environ["AWS_S3_ENDPOINT"]
 bucket = os.environ["AWS_S3_BUCKET"]
 key = (
-    os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/")
+    os.environ.get("FEAST_S3_PREFIX", "fd-gitops/features").strip("/")
     + "/transactions.parquet"
 )
 client = boto3.client(
@@ -27,7 +27,7 @@ print("loaded_rows", len(df), "cols", list(df.columns))
 if df["event_timestamp"].dt.tz is None:
     df["event_timestamp"] = df["event_timestamp"].dt.tz_localize("UTC")
 
-repo = os.environ.get("FEAST_REPO", "/feast-data/fraud_detection/feature_repo")
+repo = os.environ.get("FEAST_REPO", "/feast-data/fd_gitops/feature_repo")
 store = FeatureStore(repo)
 store.write_to_online_store("fraud_features", df)
 print("write_to_online_store=OK")

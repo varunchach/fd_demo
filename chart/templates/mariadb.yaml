@@ -1,42 +1,45 @@
 {{- if and .Values.pipelines.enabled .Values.pipelines.deployMariaDB }}
-# Lab-only DSPA metadata DB (MySQL/MariaDB). Feast online uses Postgres separately.
+{{- $db := .Values.pipelines.mariaDbName }}
+# Fresh MariaDB for THIS demo's DSPA only (not shared with other projects).
 apiVersion: v1
 kind: Secret
 metadata:
-  name: fraud-db
+  name: {{ $db }}
   namespace: {{ .Release.Namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 type: Opaque
 stringData:
-  password: fraudmlops
+  password: fdgitops
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: fraud-db
+  name: {{ $db }}
   namespace: {{ .Release.Namespace }}
 spec:
   ports:
     - port: 3306
       targetPort: 3306
   selector:
-    app: fraud-db
+    app: {{ $db }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fraud-db
+  name: {{ $db }}
   namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fraud-db
+      app: {{ $db }}
   template:
     metadata:
       labels:
-        app: fraud-db
+        app: {{ $db }}
     spec:
       containers:
         - name: mariadb
@@ -45,7 +48,7 @@ spec:
             - containerPort: 3306
           env:
             - name: MYSQL_ROOT_PASSWORD
-              value: fraudmlops
+              value: fdgitops
             - name: MYSQL_DATABASE
               value: mlpipeline
             - name: MYSQL_USER
@@ -53,11 +56,11 @@ spec:
             - name: MYSQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: fraud-db
+                  name: {{ $db }}
                   key: password
           readinessProbe:
             exec:
-              command: ["bash", "-c", "mysqladmin ping -h 127.0.0.1 -u mlpipeline -pfraudmlops --silent"]
+              command: ["bash", "-c", "mysqladmin ping -h 127.0.0.1 -u mlpipeline -pfdgitops --silent"]
             initialDelaySeconds: 10
             periodSeconds: 5
 {{- end }}

@@ -1,47 +1,49 @@
-# Submit KFP run against DSPA (CLI — no dashboard).
-# Prerequisites: ConfigMaps feast-submit-script + fraud-detection-pipeline-yaml
-#   (created by scripts/oneshot.sh)
+# Manual submit for oneshot.sh (Argo uses PostSync Job fd-gitops-submit-pipeline).
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: submit-fraud-pipeline
-  namespace: fraud-detection
+  name: fd-gitops-submit-manual
+  namespace: fd-gitops
 spec:
   ttlSecondsAfterFinished: 600
   backoffLimit: 1
   template:
     spec:
-      serviceAccountName: fraud-pipeline-submitter
+      serviceAccountName: fd-gitops-submitter
       restartPolicy: Never
       containers:
         - name: submit
           image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
           envFrom:
             - secretRef:
-                name: pipeline-artifacts
+                name: fd-gitops-pipeline-s3
           env:
             - name: HOME
               value: /tmp
             - name: NAMESPACE
-              value: fraud-detection
+              value: fd-gitops
             - name: DSPA_API
-              value: https://ds-pipeline-fraud-detection-dspa.fraud-detection.svc.cluster.local:8443
+              value: https://ds-pipeline-fd-gitops-dspa.fd-gitops.svc.cluster.local:8443
             - name: DSPA_NAME
-              value: fraud-detection-dspa
+              value: fd-gitops-dspa
             - name: FEAST_URL
-              value: https://feast-fraud-feature-store-online.fraud-detection.svc.cluster.local:443
+              value: https://feast-fd-gitops-fs-online.fd-gitops.svc.cluster.local:443
+            - name: FEAST_NAME
+              value: fd-gitops-fs
             - name: MLFLOW_TRACKING_URI
               value: https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow
             - name: PIPELINE_FILE
               value: /pipeline/pipeline.yaml
+            - name: PIPELINE_DISPLAY_NAME
+              value: fd-gitops-pipeline
             - name: EXPERIMENT_NAME
-              value: fraud-detection-training
+              value: fd-gitops-training
             - name: RUN_NAME
-              value: fraud-detection-e2e
+              value: fd-gitops-e2e
             - name: PIPELINE_SA
-              value: pipeline-runner-fraud-detection-dspa
+              value: pipeline-runner-fd-gitops-dspa
             - name: S3_KEY
-              value: fraud-detection/raw/transactions.csv
+              value: fd-gitops/raw/transactions.csv
           command: ["python", "/scripts/submit_pipeline_run.py"]
           volumeMounts:
             - name: scripts
@@ -51,7 +53,7 @@ spec:
       volumes:
         - name: scripts
           configMap:
-            name: feast-submit-script
+            name: fd-gitops-submit-script
         - name: pipeline
           configMap:
-            name: fraud-detection-pipeline-yaml
+            name: fd-gitops-pipeline-yaml

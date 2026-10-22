@@ -1,10 +1,10 @@
 {{- if and .Values.hooks.enabled .Values.hooks.materializeOnline }}
-# PostSync: pipe materialize script into Feast ONLINE pod and write_to_online_store.
-# Matches the proven oc-exec path (Feast pod already has feature_repo + Postgres online).
+{{- $fs := .Values.featureStore.name }}
+{{- $proj := .Values.featureStore.feastProject }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: gitops-materialize-script
+  name: fd-gitops-materialize-script
   namespace: {{ .Release.Namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "3"
@@ -15,7 +15,7 @@ data:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gitops-materialize-feast-online
+  name: fd-gitops-materialize-online
   namespace: {{ .Release.Namespace }}
   annotations:
     argocd.argoproj.io/hook: PostSync
@@ -27,7 +27,7 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
-      serviceAccountName: fraud-pipeline-submitter
+      serviceAccountName: {{ .Values.hooks.submitterSa }}
       containers:
         - name: materialize
           image: {{ .Values.hooks.cliImage | quote }}
@@ -35,9 +35,11 @@ spec:
             - name: NS
               value: {{ .Release.Namespace | quote }}
             - name: FS_NAME
-              value: {{ .Values.featureStore.name | quote }}
+              value: {{ $fs | quote }}
             - name: FEAST_S3_PREFIX
               value: {{ .Values.featureStore.offlineS3Prefix | quote }}
+            - name: FEAST_REPO
+              value: {{ printf "/feast-data/%s/feature_repo" $proj | quote }}
           command: ["bash", "-c"]
           args:
             - |
@@ -59,9 +61,9 @@ spec:
               done
               if [ -z "${POD}" ]; then echo "no Feast pod"; exit 1; fi
               echo "pod=${POD}"
-              kubectl get cm gitops-materialize-script -n "${NS}" \
+              kubectl get cm fd-gitops-materialize-script -n "${NS}" \
                 -o jsonpath='{.data.materialize_online\.py}' \
                 | kubectl exec -i -n "${NS}" "${POD}" -c online -- tee /tmp/materialize_online.py >/dev/null
               kubectl exec -n "${NS}" "${POD}" -c online -- bash -c \
-                "export FEAST_S3_PREFIX='${FEAST_S3_PREFIX}'; export FEAST_REPO=/feast-data/fraud_detection/feature_repo; python /tmp/materialize_online.py"
+                "export FEAST_S3_PREFIX='${FEAST_S3_PREFIX}'; export FEAST_REPO='${FEAST_REPO}'; python /tmp/materialize_online.py"
 {{- end }}

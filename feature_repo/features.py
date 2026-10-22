@@ -4,9 +4,11 @@ from datetime import timedelta
 from feast import Entity, FeatureService, FeatureView, Field, FileSource
 from feast.types import Float32, Int64
 
-_bucket = os.environ.get("AWS_S3_BUCKET", "pipeline-artifacts")
-_prefix = os.environ.get("FEAST_S3_PREFIX", "fraud-detection/features").strip("/")
-_endpoint = os.environ.get("AWS_S3_ENDPOINT", "http://minio.fraud-detection.svc.cluster.local:9000")
+_bucket = os.environ.get("AWS_S3_BUCKET", "fd-gitops-features")
+_prefix = os.environ.get("FEAST_S3_PREFIX", "fd-gitops/features").strip("/")
+_endpoint = os.environ.get("AWS_ENDPOINT_URL") or os.environ.get(
+    "AWS_S3_ENDPOINT", "https://s3.example.com"
+)
 
 transaction = Entity(name="transaction_id", join_keys=["transaction_id"])
 
@@ -32,7 +34,6 @@ fraud_features = FeatureView(
     source=transaction_source,
 )
 
-# Serving group shown under Feature services in the RHOAI Feature Store UI
 fraud_feature_service = FeatureService(
     name="fraud_txn_service",
     features=[fraud_features],
