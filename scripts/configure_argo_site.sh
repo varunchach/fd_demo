@@ -47,14 +47,15 @@ oc patch applications.argoproj.io "${APP_NAME}" -n "${APP_NS}" --type json -p "$
 EOF
 )"
 
-# Clear any old PostSync Jobs from earlier broken design
-oc delete job -n "${NS}" -l app.kubernetes.io/instance=fd-gitops --ignore-not-found 2>/dev/null || true
+# Clear old Jobs (never wait — force-delete can hang the script otherwise)
 oc delete job fd-gitops-submit-pipeline fd-gitops-seed-offline fd-gitops-materialize-online \
-  -n "${NS}" --ignore-not-found --force --grace-period=0 2>/dev/null || true
+  -n "${NS}" --ignore-not-found --wait=false 2>/dev/null || true
 
+echo "==> refreshing Argo Application"
 oc annotate applications.argoproj.io "${APP_NAME}" -n "${APP_NS}" \
   argocd.argoproj.io/refresh=hard --overwrite
 
+echo "==> requesting sync"
 oc patch applications.argoproj.io "${APP_NAME}" -n "${APP_NS}" --type merge -p "{
   \"operation\":{
     \"initiatedBy\":{\"username\":\"${GITOPS_USER:-Varun Raste}\"},
@@ -63,8 +64,8 @@ oc patch applications.argoproj.io "${APP_NAME}" -n "${APP_NS}" --type merge -p "
 }"
 
 echo ""
-echo "==> Platform sync triggered. Wait for:"
-echo "    oc get featurestore,dspa -n ${NS}"
-echo "    oc get svc -n ${NS} | grep ds-pipeline"
-echo "Then run the demo path (separate from Argo):"
+echo "==> DONE (script finished). Platform sync is async in Argo."
+echo "    oc get applications.argoproj.io ${APP_NAME} -n ${APP_NS}"
+echo "    oc get pods,svc -n ${NS}"
+echo "    When FeatureStore Ready + ds-pipeline Service exist:"
 echo "    ./scripts/run_demo_e2e.sh"
