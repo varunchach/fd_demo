@@ -51,7 +51,9 @@ hooks:
   enabled: true
   seedOffline: true
   materializeOnline: true
-  submitPipeline: true
+  # false by default so PostSync cannot block Argo while DSPA/MariaDB come up.
+  # Turn on after: oc get svc -n fd-gitops | grep ds-pipeline
+  submitPipeline: false
   cliImage: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
   notebookImage: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:3.5
   mlflowTrackingUri: https://mlflow.redhat-ods-applications.svc.cluster.local:8443/mlflow

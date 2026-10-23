@@ -44,16 +44,22 @@ oc patch applications.argoproj.io "${APP_NAME}" -n "${APP_NS}" --type json -p "$
 EOF
 )"
 
+# Drop stuck submit hooks so Argo can sync platform (DSPA MariaDB) from Git
+oc delete job fd-gitops-submit-pipeline -n fd-gitops --ignore-not-found --force --grace-period=0 2>/dev/null || true
+
 oc annotate applications.argoproj.io "${APP_NAME}" -n "${APP_NS}" \
   argocd.argoproj.io/refresh=hard --overwrite
 
 oc patch applications.argoproj.io "${APP_NAME}" -n "${APP_NS}" --type merge -p "{
   \"operation\":{
     \"initiatedBy\":{\"username\":\"${USER:-gitops}\"},
-    \"sync\":{\"revision\":\"main\"}
+    \"sync\":{\"revision\":\"main\",\"prune\":true}
   }
 }"
 
-echo "==> done. Confirm:"
-echo "    oc get featurestore fd-gitops-fs -n fd-gitops -o jsonpath='{.spec.services.registry.local.persistence.file.path}{\"\\n\"}'"
-echo "    (expect s3://${FEAST_BUCKET}/fd-gitops/registry.db)"
+echo "==> done. Argo owns DSPA+Feast from Git (no manual DSPA apply)."
+echo "    Registry path: s3://${FEAST_BUCKET}/fd-gitops/registry.db"
+echo "    Watch: oc get pods,svc -n fd-gitops -w"
+echo "    When ds-pipeline-* Service exists, enable submit:"
+echo "      oc patch applications.argoproj.io ${APP_NAME} -n ${APP_NS} --type merge -p '{\"spec\":{\"source\":{\"helm\":{\"parameters\":[{\"name\":\"hooks.submitPipeline\",\"value\":\"true\"}]}}}}'"
+echo "      (or re-run with SUBMIT=true ./scripts/configure_argo_site.sh after adding that flag)"
