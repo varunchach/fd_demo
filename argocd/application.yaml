@@ -46,6 +46,16 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: fd-gitops
+  # Ignore operator-owned status noise so Healthy stays stable
+  ignoreDifferences:
+    - group: datasciencepipelinesapplications.opendatahub.io
+      kind: DataSciencePipelinesApplication
+      jsonPointers:
+        - /status
+    - group: feast.dev
+      kind: FeatureStore
+      jsonPointers:
+        - /status
   syncPolicy:
     automated:
       prune: true
@@ -53,9 +63,11 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
     retry:
       limit: 5
       backoff:
         duration: 30s
         factor: 2
         maxDuration: 5m
+
