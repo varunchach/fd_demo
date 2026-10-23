@@ -12,6 +12,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    # Replace (not merge) so a stale externalDB from older syncs cannot stick
+    argocd.argoproj.io/sync-options: Replace=true
 spec:
   dspVersion: v2
   apiServer:
@@ -23,9 +25,10 @@ spec:
   scheduledWorkflow:
     deploy: true
   database:
+    # TLS off — avoids mlpipeline "Aborted connection / communication packets" noise
     customExtraParams: '{"tls":"false"}'
 {{- if .Values.pipelines.deployMariaDB }}
-    # RHOAI-managed MariaDB (avoids NetworkPolicy / timeout to a DIY Deployment)
+    # Git source of truth: operator-managed MariaDB (what worked in the demo)
     mariaDB:
       deploy: true
 {{- else }}
@@ -40,6 +43,7 @@ spec:
         name: {{ .Values.pipelines.externalDb.passwordSecret }}
         key: {{ .Values.pipelines.externalDb.passwordKey }}
 {{- end }}
+
   objectStorage:
     externalStorage:
       host: {{ .Values.pipelines.s3Host }}

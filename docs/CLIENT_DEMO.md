@@ -1,28 +1,42 @@
-# Client demo — robust GitOps path
+# Client demo — synced GitOps workflow (final)
 
-## Design (why this won’t thrash)
+## Architecture
 
-| Layer | Owned by | What |
-|-------|----------|------|
-| Platform | **Argo CD** | DSPA + managed MariaDB + FeatureStore + RBAC |
-| Site config | **env → configure_argo_site.sh** | S3 host/buckets (not hardcoded in Git) |
-| Demo run | **run_demo_e2e.sh** | seed → materialize → submit (after platform Ready) |
+| Layer | Source of truth | How |
+|-------|-----------------|-----|
+| DSPA + managed MariaDB + Feast | **Git** `chart/` | Argo Application `fd-gitops` |
+| S3 host / buckets | **env** (not committed) | `configure_argo_site.sh` → helm.parameters |
+| Secrets | cluster (once) | `apply_fd_gitops_secrets.sh` |
+| seed → materialize → submit | script after Ready | `run_demo_e2e.sh` |
 
-Argo PostSync Jobs are **disabled**. They previously blocked sync when DSPA/DB lagged, which made working Feast look “broken”.
+**No manual `oc apply` DSPA YAML.** Chart has `mariaDB.deploy: true`, `tls: false`, and `argocd.argoproj.io/sync-options: Replace=true` so stale `externalDB` cannot stick.
 
-Namespace: `fd-gitops`
+Demo Jobs are **not** Argo PostSync hooks (hooks stay off so sync never hangs).
 
 ---
 
-## One clean sequence
+## Learnings baked into Git
+
+1. Feast registry/UI/online get `envFrom` feast S3 secret (chart FeatureStore).
+2. Registry path = `s3://$FEAST_BUCKET/fd-gitops/registry.db` from helm param (not hardcoded).
+3. Postgres port is required env (`PG_PORT`), e.g. `6666`.
+4. DSPA uses **operator MariaDB**, not a DIY Deployment (`:3306` timeouts).
+5. MLflow mode `AUTODETECT` (uppercase enum).
+6. Materialize uses `oc exec` stdin (Feast image has no `tar` for `oc cp`).
+7. Pipeline run is `run_demo_e2e.sh` after `ds-pipeline-*` Service exists.
+
+---
+
+## Demo commands (greenfield or re-sync)
 
 ```bash
 git clone https://github.com/varunchach/fd_demo.git && cd fd_demo
+git reset --hard origin/main
 chmod +x scripts/*.sh
 
 export AWS_ACCESS_KEY_ID='...'
 export AWS_SECRET_ACCESS_KEY='...'
-export AWS_S3_ENDPOINT='https://YOUR_S3_HOST'
+export AWS_S3_ENDPOINT='https://bls3-rhoat-non-prod.bajajlife.com'
 export AWS_DEFAULT_REGION='us-east-1'
 export PIPELINE_BUCKET='kubeflow-pipelines'
 export FEAST_BUCKET='feature-store'
@@ -33,44 +47,33 @@ export PG_USER='...'
 export PG_PASSWORD='...'
 export PG_DATABASE='featurestore'
 
-# 1) Secrets
-./scripts/apply_fd_gitops_secrets.sh
+# One shot:
+./scripts/bootstrap_gitops.sh
 
-# 2) Argo Application (platform only)
-oc apply -f argocd/application.yaml
-./scripts/configure_argo_site.sh
-
-# 3) Wait until platform is healthy
-oc get featurestore fd-gitops-fs -n fd-gitops -w          # Ready
-oc get svc -n fd-gitops | grep ds-pipeline                 # must exist
-oc get pods -n fd-gitops                                   # feast + mariadb + ds-pipeline-*
-
-# 4) Demo path (NOT Argo)
-./scripts/run_demo_e2e.sh
-oc get workflow -n fd-gitops -w
+# Or stepped:
+# ./scripts/apply_fd_gitops_secrets.sh
+# ./scripts/configure_argo_site.sh          # oc apply Application + params + sync
+# # wait FeatureStore Ready + ds-pipeline Service
+# ./scripts/run_demo_e2e.sh
 ```
 
 ---
 
-## What to show the client
+## Re-enable Argo after an earlier manual freeze
 
-1. **GitOps → Applications → `fd-gitops`** — Synced/Healthy (platform)
-2. **Feature Store** UI in project `fd-gitops`
-3. After `run_demo_e2e.sh` — Workflow Succeeded + MLflow `fd-gitops-training`
-
----
-
-## Do not
-
-- Put seed/submit as Argo PostSync hooks (re-enabled only if you accept sync risk)
-- Hand-edit DSPA while Argo manages it — fix Git / helm.parameters instead
-- Skip `configure_argo_site.sh` (buckets must match secrets)
-
----
-
-## Tear down
+If you had set `syncPolicy: null` during troubleshooting:
 
 ```bash
-oc delete applications.argoproj.io fd-gitops -n openshift-gitops
-oc delete project fd-gitops
+# same AWS_* / bucket exports
+./scripts/configure_argo_site.sh
 ```
+
+That re-applies `argocd/application.yaml` (automated sync) and syncs DSPA from Git with Replace.
+
+---
+
+## Client talking points
+
+1. GitOps → Applications → `fd-gitops` — Synced (platform from Git).
+2. Feature Store Ready; pipeline Services present.
+3. `run_demo_e2e.sh` — Workflow Succeeded; MLflow experiment `fd-gitops-training`.
