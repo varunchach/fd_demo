@@ -9,7 +9,10 @@ git:
 pipelines:
   enabled: true
   dspaName: fd-gitops-dspa
+  # true = DSPA operator deploys MariaDB (recommended; avoids DIY DB network timeouts)
   deployMariaDB: true
+  # true = chart Deployment fd-gitops-db (legacy; leave false)
+  deployCustomMariaDB: false
   mariaDbName: fd-gitops-db
   # REQUIRED (override in Argo): S3 hostname only, no https://
   s3Host: ""

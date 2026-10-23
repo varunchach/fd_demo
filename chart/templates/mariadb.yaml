@@ -1,6 +1,7 @@
-{{- if and .Values.pipelines.enabled .Values.pipelines.deployMariaDB }}
+{{- /* Custom MariaDB removed — use DSPA mariaDB.deploy: true (pipelines.deployMariaDB).
+     Keep file so Argo prune can drop the old fd-gitops-db Deployment/Service/Secret. */ -}}
+{{- if and .Values.pipelines.enabled .Values.pipelines.deployCustomMariaDB }}
 {{- $db := .Values.pipelines.mariaDbName }}
-# Fresh MariaDB for THIS demo's DSPA only (not shared with other projects).
 apiVersion: v1
 kind: Secret
 metadata:
@@ -58,9 +59,4 @@ spec:
                 secretKeyRef:
                   name: {{ $db }}
                   key: password
-          readinessProbe:
-            exec:
-              command: ["bash", "-c", "mysqladmin ping -h 127.0.0.1 -u mlpipeline -pfdgitops --silent"]
-            initialDelaySeconds: 10
-            periodSeconds: 5
 {{- end }}

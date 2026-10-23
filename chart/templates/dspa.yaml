@@ -5,7 +5,6 @@
 {{- if not .Values.pipelines.s3Bucket }}
 {{- fail "pipelines.s3Bucket is required (set via Argo helm.parameters)" }}
 {{- end }}
-{{- $db := .Values.pipelines.mariaDbName }}
 apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
 kind: DataSciencePipelinesApplication
 metadata:
@@ -25,18 +24,13 @@ spec:
     deploy: true
   database:
     customExtraParams: '{"tls":"false"}'
+{{- if .Values.pipelines.deployMariaDB }}
+    # RHOAI-managed MariaDB (avoids NetworkPolicy / timeout to a DIY Deployment)
+    mariaDB:
+      deploy: true
+{{- else }}
     mariaDB:
       deploy: false
-{{- if .Values.pipelines.deployMariaDB }}
-    externalDB:
-      host: {{ $db }}.{{ .Release.Namespace }}.svc.cluster.local
-      port: "3306"
-      username: mlpipeline
-      pipelineDBName: mlpipeline
-      passwordSecret:
-        name: {{ $db }}
-        key: password
-{{- else }}
     externalDB:
       host: {{ .Values.pipelines.externalDb.host | quote }}
       port: {{ .Values.pipelines.externalDb.port | quote }}
