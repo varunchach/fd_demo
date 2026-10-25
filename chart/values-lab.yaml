@@ -7,13 +7,13 @@
 lab:
   createS3Secrets: true
   s3:
-    # Default sandbox MinIO in credit-decisioning (override if your lab differs)
-    endpoint: http://minio.credit-decisioning.svc.cluster.local:9000
+    # Use minio-service (svc "minio" often has no Endpoints on this lab)
+    endpoint: http://minio-service.credit-decisioning.svc.cluster.local:9000
     accessKey: minio
     secretKey: minio123
 
 pipelines:
-  s3Host: minio.credit-decisioning.svc.cluster.local
+  s3Host: minio-service.credit-decisioning.svc.cluster.local
   s3Port: "9000"
   s3Scheme: http
   s3Bucket: pipeline-artifacts
