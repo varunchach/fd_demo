@@ -1,9 +1,13 @@
 {{- if .Values.featureStore.enabled }}
-{{- if not .Values.featureStore.offlineS3Bucket }}
-{{- fail "featureStore.offlineS3Bucket is required (set via Argo helm.parameters — do not leave empty)" }}
+{{- /* Lab can use local registry (official sample style). Customer uses S3 path. */ -}}
+{{- $useLocalReg := .Values.featureStore.localRegistry | default false }}
+{{- if and (not $useLocalReg) (not .Values.featureStore.offlineS3Bucket) }}
+{{- fail "featureStore.offlineS3Bucket is required unless featureStore.localRegistry=true" }}
 {{- end }}
 {{- $registryPath := .Values.featureStore.registryS3Path }}
-{{- if not $registryPath }}
+{{- if $useLocalReg }}
+{{- $registryPath = .Values.featureStore.localRegistryPath | default "/feast-data/registry.db" }}
+{{- else if not $registryPath }}
 {{- $registryPath = printf "s3://%s/fd-gitops/registry.db" .Values.featureStore.offlineS3Bucket }}
 {{- end }}
 apiVersion: feast.dev/v1
@@ -17,15 +21,17 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
 spec:
   feastProject: {{ .Values.featureStore.feastProject }}
+{{- if .Values.featureStore.cloneFeatureRepo | default true }}
   feastProjectDir:
     git:
       url: {{ .Values.git.repoURL }}
       ref: {{ .Values.git.revision }}
       featureRepoPath: feature_repo
+{{- end }}
   authz:
     noAuth: true
   services:
-    # Online serving → customer PostgreSQL
+    # Online = PostgreSQL only (never Redis/MariaDB)
     onlineStore:
       persistence:
         store:
@@ -34,7 +40,7 @@ spec:
             name: {{ .Values.featureStore.onlinePostgresSecret }}
           secretKeyName: {{ .Values.featureStore.onlinePostgresSecretKey }}
       server:
-        # AWS env so materialize / FileSource can read offline S3
+{{- if not $useLocalReg }}
         envFrom:
           - secretRef:
               name: {{ .Values.featureStore.offlineS3Secret }}
@@ -43,21 +49,20 @@ spec:
             value: {{ .Values.featureStore.offlineS3Prefix | quote }}
           - name: AWS_S3_FORCE_PATH_STYLE
             value: "true"
-          # Avoid PutObject x-amz-content-sha256 InvalidArgument on S3 gateways
           - name: AWS_REQUEST_CHECKSUM_CALCULATION
             value: WHEN_REQUIRED
           - name: AWS_RESPONSE_CHECKSUM_VALIDATION
             value: WHEN_REQUIRED
-    # Offline = file/dask reading S3 parquet defined in feature_repo/features.py
+{{- end }}
     offlineStore:
       persistence:
         file:
           type: dask
-    # Registry metadata on S3
     registry:
       local:
         server:
           restAPI: true
+{{- if not $useLocalReg }}
           envFrom:
             - secretRef:
                 name: {{ .Values.featureStore.offlineS3Secret }}
@@ -68,19 +73,9 @@ spec:
               value: WHEN_REQUIRED
             - name: AWS_RESPONSE_CHECKSUM_VALIDATION
               value: WHEN_REQUIRED
+{{- end }}
         persistence:
           file:
             path: {{ $registryPath | quote }}
-    # UI also reads S3 registry — needs same AWS env as registry/online
-    ui:
-      envFrom:
-        - secretRef:
-            name: {{ .Values.featureStore.offlineS3Secret }}
-      env:
-        - name: AWS_S3_FORCE_PATH_STYLE
-          value: "true"
-        - name: AWS_REQUEST_CHECKSUM_CALCULATION
-          value: WHEN_REQUIRED
-        - name: AWS_RESPONSE_CHECKSUM_VALIDATION
-          value: WHEN_REQUIRED
+    ui: {}
 {{- end }}

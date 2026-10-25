@@ -25,7 +25,11 @@ pipelines:
 featureStore:
   offlineS3Bucket: pipeline-artifacts
   offlineS3Prefix: fd-gitops/features
-  # Dummy Postgres container in fd-gitops — same secret format as customer PG
+  # Match official feast sample: local registry so UI comes up without S3 first
+  localRegistry: true
+  localRegistryPath: /feast-data/registry.db
+  cloneFeatureRepo: true
+  # Dummy Postgres container — Feast online stays PostgreSQL
   deployLabPostgres: true
   labPostgres:
     name: fd-gitops-postgres
