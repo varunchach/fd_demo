@@ -1,0 +1,96 @@
+{{- /*
+  Lab / dummy only: in-cluster PostgreSQL for Feast ONLINE store.
+  Does NOT replace Postgres with Redis/MariaDB — same Feast secret shape:
+    Secret fd-gitops-feast-pg  key feature_store.yaml  (host/port/database/user/password)
+  Customer clusters: leave featureStore.deployLabPostgres=false and supply real PG secret.
+*/ -}}
+{{- if and .Values.featureStore.enabled .Values.featureStore.deployLabPostgres }}
+{{- $name := .Values.featureStore.labPostgres.name | default "fd-gitops-postgres" }}
+{{- $user := .Values.featureStore.labPostgres.user | default "feast" }}
+{{- $pass := .Values.featureStore.labPostgres.password | default "feastpass" }}
+{{- $db := .Values.featureStore.labPostgres.database | default "feast" }}
+{{- $secret := .Values.featureStore.onlinePostgresSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+type: Opaque
+stringData:
+  feature_store.yaml: |
+    host: {{ $name }}.{{ .Release.Namespace }}.svc.cluster.local
+    port: 5432
+    database: {{ $db }}
+    db_schema: public
+    user: {{ $user }}
+    password: {{ $pass }}
+    sslmode: disable
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ $name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  selector:
+    app: {{ $name }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ $name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.featureStore.labPostgres.image | default "registry.redhat.io/rhel9/postgresql-15:latest" }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRESQL_USER
+              value: {{ $user | quote }}
+            - name: POSTGRESQL_PASSWORD
+              value: {{ $pass | quote }}
+            - name: POSTGRESQL_DATABASE
+              value: {{ $db | quote }}
+            - name: POSTGRES_USER
+              value: {{ $user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ $pass | quote }}
+            - name: POSTGRES_DB
+              value: {{ $db | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgsql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ $user | quote }}]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: data
+          emptyDir: {}
+{{- end }}

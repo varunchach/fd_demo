@@ -1,0 +1,38 @@
+# Lab / dummy cluster overlays — Feast stays on PostgreSQL (not Redis/MariaDB).
+# DSPA still uses operator MariaDB (RHOAI pipeline requirement — unrelated to Feast).
+#
+# Usage (single oc apply for Argo):
+#   oc apply -f argocd/application-lab.yaml
+
+lab:
+  createS3Secrets: true
+  s3:
+    # Default sandbox MinIO in credit-decisioning (override if your lab differs)
+    endpoint: http://minio.credit-decisioning.svc.cluster.local:9000
+    accessKey: minio
+    secretKey: minio123
+
+pipelines:
+  s3Host: minio.credit-decisioning.svc.cluster.local
+  s3Port: "9000"
+  s3Scheme: http
+  s3Bucket: pipeline-artifacts
+  s3Region: us-east-1
+  deployMariaDB: true
+  deployCustomMariaDB: false
+  mlflowIntegrationMode: AUTODETECT
+
+featureStore:
+  offlineS3Bucket: pipeline-artifacts
+  offlineS3Prefix: fd-gitops/features
+  # Dummy Postgres container in fd-gitops — same secret format as customer PG
+  deployLabPostgres: true
+  labPostgres:
+    name: fd-gitops-postgres
+    user: feast
+    password: feastpass
+    database: feast
+    image: registry.redhat.io/rhel9/postgresql-15:latest
+
+hooks:
+  enabled: false

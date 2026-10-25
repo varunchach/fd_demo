@@ -1,18 +1,25 @@
 ﻿# Fraud MLOps — GitOps demo (`fd-gitops`)
 
-**One command** after env exports: secrets → Argo (DSPA+Feast) → seed/materialize/pipeline.
+**Feast online store is always PostgreSQL** (lab = dummy Postgres container; customer = your PG). Never swapped to Redis.
+
+### Lab / dummy (one apply — Argo syncs platform)
 
 ```bash
-export PIPELINE_BUCKET=... FEAST_BUCKET=...   # + AWS_* or SRC_*; + PG_* or PG_SRC_SECRET
+oc apply -f argocd/application-lab.yaml
+# Console: GitOps → Applications → openshift-gitops → fd-gitops
+```
+
+### Customer (env once + one script)
+
+```bash
+export PIPELINE_BUCKET=... FEAST_BUCKET=... AWS_S3_ENDPOINT=... PG_HOST=... PG_PORT=... PG_USER=... PG_PASSWORD=...
 ./scripts/bootstrap_gitops.sh
 ```
 
-**Where to see the Argo app / Feature Store UI:** **[docs/WHERE_TO_LOOK.md](docs/WHERE_TO_LOOK.md)**  
-(OpenShift Console GitOps / Argo CD UI — **not** inside OpenShift AI.)
+**Where to look:** **[docs/WHERE_TO_LOOK.md](docs/WHERE_TO_LOOK.md)** · Details: **[docs/CLIENT_DEMO.md](docs/CLIENT_DEMO.md)**
 
-Details: **[docs/CLIENT_DEMO.md](docs/CLIENT_DEMO.md)**
-
-| Git (Argo) | Included in `bootstrap_gitops.sh` (not Argo hooks) |
-|------------|-----------------------------------------------------|
-| DSPA + managed MariaDB (`Replace=true`) | seed / materialize / pipeline submit |
-| FeatureStore + S3/Postgres | `run_demo_e2e.sh` step |
+| Git (Argo) | Lab | Customer |
+|------------|-----|----------|
+| DSPA + operator MariaDB | `values-lab.yaml` | `configure_argo_site.sh` |
+| FeatureStore + **Postgres** | in-cluster PG container | your PG secret |
+| S3 secrets | from values-lab | `apply_fd_gitops_secrets.sh` |
