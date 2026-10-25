@@ -51,6 +51,9 @@ featureStore:
   offlineS3Bucket: ""
   offlineS3Prefix: fd-gitops/features
   registryS3Path: ""
+  # Customer default: clone feature_repo from Git. Lab sets false until S3 parquet exists.
+  cloneFeatureRepo: true
+  localRegistry: false
   # Lab only: deploy a Postgres container and write the same secret format.
   # Customer: false + real PG via apply_fd_gitops_secrets.sh
   deployLabPostgres: false

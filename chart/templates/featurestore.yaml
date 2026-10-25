@@ -21,7 +21,8 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
 spec:
   feastProject: {{ .Values.featureStore.feastProject }}
-{{- if .Values.featureStore.cloneFeatureRepo | default true }}
+{{- /* Do NOT use "| default true" — Helm treats false as empty and would always clone. */ -}}
+{{- if .Values.featureStore.cloneFeatureRepo }}
   feastProjectDir:
     git:
       url: {{ .Values.git.repoURL }}
