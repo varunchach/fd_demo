@@ -25,10 +25,10 @@ pipelines:
 featureStore:
   offlineS3Bucket: pipeline-artifacts
   offlineS3Prefix: fd-gitops/features
-  # Match official feast sample: local registry so UI comes up without S3 first
+  # Match official feast sample: local registry; no git clone until S3 parquet seeded
   localRegistry: true
   localRegistryPath: /feast-data/registry.db
-  cloneFeatureRepo: true
+  cloneFeatureRepo: false
   # Dummy Postgres container — Feast online stays PostgreSQL
   deployLabPostgres: true
   labPostgres:
