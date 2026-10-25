@@ -1,18 +1,18 @@
 ﻿# Fraud MLOps — GitOps demo (`fd-gitops`)
 
-**Argo syncs platform from Git. Demo run is an explicit script after Ready.**
+**One command** after env exports: secrets → Argo (DSPA+Feast) → seed/materialize/pipeline.
 
 ```bash
-export AWS_* PIPELINE_BUCKET FEAST_BUCKET PG_*   # site config
-./scripts/bootstrap_gitops.sh                    # secrets → Argo → e2e
+export PIPELINE_BUCKET=... FEAST_BUCKET=...   # + AWS_* or SRC_*; + PG_* or PG_SRC_SECRET
+./scripts/bootstrap_gitops.sh
 ```
 
-Or: `apply_fd_gitops_secrets.sh` → `configure_argo_site.sh` → wait → `run_demo_e2e.sh`
+**Where to see the Argo app / Feature Store UI:** **[docs/WHERE_TO_LOOK.md](docs/WHERE_TO_LOOK.md)**  
+(OpenShift Console GitOps / Argo CD UI — **not** inside OpenShift AI.)
 
-Details / learnings: **[docs/CLIENT_DEMO.md](docs/CLIENT_DEMO.md)**
+Details: **[docs/CLIENT_DEMO.md](docs/CLIENT_DEMO.md)**
 
-| Git (Argo) | Not in Argo hooks |
-|------------|-------------------|
-| DSPA + **managed MariaDB** (`Replace=true`) | seed / materialize / submit |
-| FeatureStore + S3/Postgres wiring | (`run_demo_e2e.sh`) |
-| Site buckets via helm.parameters | |
+| Git (Argo) | Included in `bootstrap_gitops.sh` (not Argo hooks) |
+|------------|-----------------------------------------------------|
+| DSPA + managed MariaDB (`Replace=true`) | seed / materialize / pipeline submit |
+| FeatureStore + S3/Postgres | `run_demo_e2e.sh` step |

@@ -1,0 +1,10 @@
+# Keep Data Science Project labels on the destination NS (Argo CreateNamespace alone does not).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/feast: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"

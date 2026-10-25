@@ -27,10 +27,26 @@ PG_SCHEMA="${PG_SCHEMA:-public}"
 PG_SSLMODE="${PG_SSLMODE:-disable}"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 
-: "${PG_HOST:?set PG_HOST (Postgres hostname)}"
-: "${PG_PORT:?set PG_PORT (e.g. 5432 or 6666 — no default)}"
-: "${PG_USER:?set PG_USER}"
-: "${PG_PASSWORD:?set PG_PASSWORD}"
+# Optional: copy Postgres from an existing Feast online secret (dummy/lab).
+#   export PG_SRC_NS=fraud-mlops PG_SRC_SECRET=feast-online-postgres
+if [[ -n "${PG_SRC_SECRET:-}" ]]; then
+  PG_SRC_NS="${PG_SRC_NS:-$SRC_NS}"
+  echo "==> copying Postgres fields from ${PG_SRC_NS}/${PG_SRC_SECRET}"
+  PG_YAML=$(oc get secret "$PG_SRC_SECRET" -n "$PG_SRC_NS" -o jsonpath='{.data.feature_store\.yaml}' | base64 -d)
+  PG_HOST="${PG_HOST:-$(echo "$PG_YAML" | awk -F': *' '/^host:/{print $2; exit}')}"
+  PG_PORT="${PG_PORT:-$(echo "$PG_YAML" | awk -F': *' '/^port:/{print $2; exit}')}"
+  PG_USER="${PG_USER:-$(echo "$PG_YAML" | awk -F': *' '/^user:/{print $2; exit}')}"
+  PG_PASSWORD="${PG_PASSWORD:-$(echo "$PG_YAML" | awk -F': *' '/^password:/{print $2; exit}')}"
+  PG_DATABASE="${PG_DATABASE:-$(echo "$PG_YAML" | awk -F': *' '/^database:/{print $2; exit}')}"
+  PG_SCHEMA="${PG_SCHEMA:-$(echo "$PG_YAML" | awk -F': *' '/^db_schema:/{print $2; exit}')}"
+  PG_SSLMODE="${PG_SSLMODE:-$(echo "$PG_YAML" | awk -F': *' '/^sslmode:/{print $2; exit}')}"
+  PG_SSLMODE="${PG_SSLMODE:-disable}"
+fi
+
+: "${PG_HOST:?set PG_HOST (Postgres hostname) or PG_SRC_SECRET}"
+: "${PG_PORT:?set PG_PORT (e.g. 5432 or 6666 — no default) or PG_SRC_SECRET}"
+: "${PG_USER:?set PG_USER or PG_SRC_SECRET}"
+: "${PG_PASSWORD:?set PG_PASSWORD or PG_SRC_SECRET}"
 
 oc new-project "$NS" 2>/dev/null || oc project "$NS"
 oc label ns "$NS" opendatahub.io/dashboard=true opendatahub.io/feast=true --overwrite
