@@ -1,9 +1,9 @@
-# Manual seed Job for oneshot.sh (Argo uses PostSync Job fd-gitops-seed-offline).
+# Manual seed Job. Apply with: oc apply -n "$NS" -f feature_repo/seed-s3-job.yaml
+# Set FEAST_S3_PREFIX to match FeatureStore offline prefix (default ${NS}/features).
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: fd-gitops-seed-offline-manual
-  namespace: fd-gitops
 spec:
   ttlSecondsAfterFinished: 600
   backoffLimit: 3
@@ -29,7 +29,7 @@ spec:
             - name: HOME
               value: /tmp
             - name: FEAST_S3_PREFIX
-              value: fd-gitops/features
+              value: PLACEHOLDER_S3_PREFIX
           command: ["bash", "-c"]
           args:
             - |

@@ -1,18 +1,17 @@
+# Apply via run_demo_e2e.sh (substitutes PLACEHOLDER_NS).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: fd-gitops-submitter
-  namespace: fd-gitops
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: fd-gitops-submitter-admin
-  namespace: fd-gitops
 subjects:
   - kind: ServiceAccount
     name: fd-gitops-submitter
-    namespace: fd-gitops
+    namespace: PLACEHOLDER_NS
 roleRef:
   kind: ClusterRole
   name: admin
