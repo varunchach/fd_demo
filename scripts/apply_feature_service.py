@@ -9,6 +9,16 @@ from botocore.client import Config
 from feast import FeatureStore
 from feast.infra.offline_stores.file_source import SavedDatasetFileStorage
 
+FEATURE_VIEW = "fraud_txn_risk_signals"
+FEATURE_REFS = [
+    f"{FEATURE_VIEW}:geo_distance_from_last_txn",
+    f"{FEATURE_VIEW}:spend_vs_median_ratio",
+    f"{FEATURE_VIEW}:card_chip_present",
+    f"{FEATURE_VIEW}:pin_authenticated",
+    f"{FEATURE_VIEW}:ecommerce_channel",
+    f"{FEATURE_VIEW}:known_merchant_repeat",
+]
+
 REPO = Path("/feast-data/fraud_detection/feature_repo")
 store = FeatureStore(repo_path=str(REPO))
 store.apply([])
@@ -33,21 +43,13 @@ df = pd.read_parquet(io.BytesIO(client.get_object(Bucket=bucket, Key=key)["Body"
 if df["event_timestamp"].dt.tz is None:
     df["event_timestamp"] = df["event_timestamp"].dt.tz_localize("UTC")
 
-# Refresh online store (emptyDir wiped on pod restart)
-store.write_to_online_store("fraud_features", df)
+store.write_to_online_store(FEATURE_VIEW, df)
 print("online_write_rows", len(df))
 
 entity_df = df[["transaction_id", "event_timestamp"]].copy()
 job = store.get_historical_features(
     entity_df=entity_df,
-    features=[
-        "fraud_features:distance_from_last_transaction",
-        "fraud_features:ratio_to_median_purchase_price",
-        "fraud_features:used_chip",
-        "fraud_features:used_pin_number",
-        "fraud_features:online_order",
-        "fraud_features:repeat_retailer",
-    ],
+    features=FEATURE_REFS,
 )
 
 out_dir = REPO / "data"

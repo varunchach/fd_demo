@@ -1,0 +1,24 @@
+# TrustyAI service for project fd-gitops (bias / drift monitoring).
+# Prereq: DSC trustyai.managementState=Managed
+# Apply: oc apply -f manifests/trustyai-service.yaml
+#
+# UI: OpenShift AI → project fd-gitops → Models / Model metrics (TrustyAI)
+# Full bias charts need a served OVMS model in this namespace.
+apiVersion: trustyai.opendatahub.io/v1
+kind: TrustyAIService
+metadata:
+  name: trustyai-service
+  namespace: fd-gitops
+  labels:
+    app.kubernetes.io/part-of: fd-gitops
+spec:
+  storage:
+    format: PVC
+    folder: /inputs
+    size: 1Gi
+  data:
+    filename: data.csv
+    format: CSV
+  metrics:
+    schedule: "5s"
+    batchSize: 5000

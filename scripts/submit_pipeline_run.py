@@ -2,8 +2,10 @@
 import json
 import os
 import ssl
+import time
 import urllib.error
 import urllib.request
+import urllib.parse
 
 PIPELINE_FILE = os.environ.get("PIPELINE_FILE", "/pipeline/pipeline.yaml")
 API = os.environ.get(
@@ -100,12 +102,20 @@ def ensure_pipeline() -> tuple:
         yaml_bytes = f.read()
     body_bytes, headers_ct = _multipart(yaml_bytes)
 
+    def _latest_version(pid: str) -> str | None:
+        _, vers = _request(
+            "GET",
+            f"/apis/v2beta1/pipelines/{pid}/versions?page_size=5&sort_by=created_at%20desc",
+        )
+        versions = vers.get("pipeline_versions") or []
+        return versions[0]["pipeline_version_id"] if versions else None
+
     if existing and force_new:
         pid = existing["pipeline_id"]
-        path = (
-            f"/apis/v2beta1/pipelines/upload_version"
-            f"?pipelineid={pid}&name={PIPELINE_DISPLAY}-{os.environ.get('RUN_NAME', 'v')}"
+        ver_name = urllib.parse.quote(
+            f"{PIPELINE_DISPLAY}-{os.environ.get('RUN_NAME', 'v')}-{int(time.time())}"
         )
+        path = f"/apis/v2beta1/pipelines/upload_version?pipelineid={pid}&name={ver_name}"
         req = urllib.request.Request(
             f"{API}{path}",
             data=body_bytes,
@@ -115,26 +125,27 @@ def ensure_pipeline() -> tuple:
         try:
             with urllib.request.urlopen(req, context=_ssl_context(), timeout=180) as resp:
                 uploaded = json.loads(resp.read())
+            print("upload_version_response", json.dumps(uploaded)[:500])
+            _, vid = _pipeline_ids(uploaded)
+            vid = vid or uploaded.get("pipeline_version_id")
+            if not vid:
+                raise RuntimeError(f"upload_version missing id: {uploaded}")
+            print("uploaded_version", pid, vid)
+            return pid, vid
         except urllib.error.HTTPError as e:
+            # 409 = version name clash — reuse latest and still create a run
             err = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"upload_version failed HTTP {e.code}: {err[:800]}") from e
-        print("upload_version_response", json.dumps(uploaded)[:500])
-        _, vid = _pipeline_ids(uploaded)
-        vid = vid or uploaded.get("pipeline_version_id")
-        if not vid:
-            raise RuntimeError(f"upload_version missing id: {uploaded}")
-        print("uploaded_version", pid, vid)
-        return pid, vid
+            print(f"upload_version HTTP {e.code}: {err[:200]} — falling back to latest version")
+            vid = _latest_version(pid)
+            if not vid:
+                raise RuntimeError(f"upload_version failed HTTP {e.code}: {err[:800]}") from e
+            print("reuse_pipeline_after_conflict", pid, vid)
+            return pid, vid
 
     if existing and not force_new:
         pid = existing["pipeline_id"]
-        _, vers = _request(
-            "GET",
-            f"/apis/v2beta1/pipelines/{pid}/versions?page_size=5&sort_by=created_at%20desc",
-        )
-        versions = vers.get("pipeline_versions") or []
-        if versions:
-            vid = versions[0]["pipeline_version_id"]
+        vid = _latest_version(pid)
+        if vid:
             print("reuse_pipeline", pid, vid)
             return pid, vid
 
@@ -185,7 +196,7 @@ def create_run(experiment_id: str, pipeline_id: str, pipeline_version_id: str) -
         ),
         "s3_key": os.environ.get("S3_KEY", "fd-gitops/raw/transactions.csv"),
         "mlflow_experiment": EXPERIMENT_NAME,
-        "registry_server_address": os.environ.get("REGISTRY_SERVER_ADDRESS", ""),
+        "model_s3_key": os.environ.get("MODEL_S3_KEY", "fd-gitops/models/fraud-model.pkl"),
         "model_name": "fd-gitops-model",
     }
     payload = {

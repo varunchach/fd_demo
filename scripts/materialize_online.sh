@@ -9,14 +9,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 POD=$(oc get pod -n "$NS" -l "feast.dev/name=${FS_NAME}" -o jsonpath='{.items[0].metadata.name}')
 echo "Using pod=$POD"
 
-# Stream script into the container (no tar required)
-oc exec -i -n "$NS" "$POD" -c online -- tee /tmp/materialize_online.py \
+# Stream script into the container (no tar required).
+# MSYS_NO_PATHCONV avoids Git-Bash rewriting /tmp → C:/Users/.../Temp
+REMOTE_PY="${REMOTE_PY:-/tmp/materialize_online.py}"
+MSYS_NO_PATHCONV=1 oc exec -i -n "$NS" "$POD" -c online -- tee "$REMOTE_PY" \
   < "$ROOT/scripts/materialize_online.py" >/dev/null
 
-oc exec -n "$NS" "$POD" -c online -- bash -c '
+MSYS_NO_PATHCONV=1 oc exec -n "$NS" "$POD" -c online -- bash -c "
 set -e
-export FEAST_S3_PREFIX="${FEAST_S3_PREFIX:-fd-gitops/features}"
-export FEAST_REPO="${FEAST_REPO:-/feast-data/fd_gitops/feature_repo}"
-python /tmp/materialize_online.py
-'
+export FEAST_S3_PREFIX=\"\${FEAST_S3_PREFIX:-fd-gitops/features}\"
+export FEAST_REPO=\"\${FEAST_REPO:-/feast-data/fd_gitops/feature_repo}\"
+python ${REMOTE_PY}
+"
 echo "DONE"

@@ -7,6 +7,12 @@ import pandas as pd
 from botocore.client import Config
 from feast import FeatureStore
 
+FEATURE_VIEW = "fraud_txn_risk_signals"
+SAMPLE_FEATURES = [
+    f"{FEATURE_VIEW}:card_chip_present",
+    f"{FEATURE_VIEW}:ecommerce_channel",
+]
+
 ep = os.environ.get("AWS_ENDPOINT_URL") or os.environ["AWS_S3_ENDPOINT"]
 bucket = os.environ["AWS_S3_BUCKET"]
 key = (
@@ -29,10 +35,10 @@ if df["event_timestamp"].dt.tz is None:
 
 repo = os.environ.get("FEAST_REPO", "/feast-data/fd_gitops/feature_repo")
 store = FeatureStore(repo)
-store.write_to_online_store("fraud_features", df)
-print("write_to_online_store=OK")
+store.write_to_online_store(FEATURE_VIEW, df)
+print("write_to_online_store=OK view=", FEATURE_VIEW)
 feats = store.get_online_features(
-    features=["fraud_features:used_chip", "fraud_features:online_order"],
+    features=SAMPLE_FEATURES,
     entity_rows=[{"transaction_id": 0}, {"transaction_id": 1}],
 ).to_dict()
 print("sample", feats)

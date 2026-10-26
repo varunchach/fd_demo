@@ -4,7 +4,7 @@
 #
 # Required: PIPELINE_BUCKET FEAST_BUCKET
 #   AWS: AWS_S3_ENDPOINT (+ keys) OR copy via SRC_NS/SRC_SECRET
-#   PG:  PG_HOST PG_PORT PG_USER PG_PASSWORD OR PG_SRC_SECRET (lab)
+#   PG:  PG_HOST PG_PORT PG_USER PG_PASSWORD (or PG_SRC_SECRET from existing Feast secret)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

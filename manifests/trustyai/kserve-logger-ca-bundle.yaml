@@ -1,0 +1,9 @@
+# RHOAI docs: Monitoring your AI systems — KServe logger CA for TrustyAI
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kserve-logger-ca-bundle
+  namespace: fd-gitops
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+data: {}

@@ -1,0 +1,122 @@
+# Export a pure ONNX neural net onto PVC for OVMS (TrustyAI-compatible).
+# OVMS cannot load sklearn ai.onnx.ml ops — use torch → ONNX (standard ops).
+# Layout required by OVMS: /mnt/models/<version>/model.onnx
+# oc apply -f manifests/serving/export-onnx-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fd-gitops-export-onnx
+  namespace: fd-gitops
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: fd-gitops-model-export
+      restartPolicy: OnFailure
+      containers:
+        - name: export
+          image: python:3.11-slim
+          env:
+            - name: HOME
+              value: /tmp
+            - name: PIP_DISABLE_PIP_VERSION_CHECK
+              value: "1"
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --no-cache-dir --user \
+                numpy==1.26.4 torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+              export PATH="/tmp/.local/bin:$PATH"
+              python - <<'PY'
+              import numpy as np
+              import torch
+              import torch.nn as nn
+              from pathlib import Path
+
+              rng = np.random.default_rng(42)
+              n = 800
+              fraud = rng.random(n) < 0.1
+              geo = np.where(fraud, rng.uniform(200, 4000, n), rng.exponential(12.0, n).clip(0, 80))
+              spend = np.where(fraud, rng.uniform(4.0, 18.0, n), rng.lognormal(0.0, 0.35, n).clip(0.2, 3.5))
+              ecommerce = np.where(fraud, 1, (rng.random(n) < 0.35).astype(int))
+              chip = np.where(ecommerce == 1, 0, (rng.random(n) < 0.85).astype(int))
+              pin = np.where((chip == 1) & (ecommerce == 0), (rng.random(n) < 0.9).astype(int), 0)
+              known = np.where(fraud, 0, (rng.random(n) < 0.7).astype(int))
+              X = np.column_stack([geo, spend, chip, pin, ecommerce, known]).astype(np.float32)
+              # standardize for stable training
+              mean, std = X.mean(0), X.std(0) + 1e-6
+              Xs = (X - mean) / std
+              y = fraud.astype(np.int64)
+
+              class FraudNet(nn.Module):
+                  def __init__(self) -> None:
+                      super().__init__()
+                      self.net = nn.Sequential(
+                          nn.Linear(6, 16),
+                          nn.ReLU(),
+                          nn.Linear(16, 2),
+                      )
+
+                  def forward(self, x: torch.Tensor) -> torch.Tensor:
+                      return self.net(x)
+
+              model = FraudNet()
+              opt = torch.optim.Adam(model.parameters(), lr=0.02)
+              loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 4.0]))
+              xt = torch.from_numpy(Xs)
+              yt = torch.from_numpy(y)
+              model.train()
+              for _ in range(80):
+                  opt.zero_grad()
+                  logits = model(xt)
+                  loss = loss_fn(logits, yt)
+                  loss.backward()
+                  opt.step()
+              model.eval()
+
+              # Bake standardization into first layer so serving uses raw features
+              with torch.no_grad():
+                  w0 = model.net[0].weight.clone()
+                  b0 = model.net[0].bias.clone()
+                  scale = torch.from_numpy(std.astype(np.float32))
+                  shift = torch.from_numpy(mean.astype(np.float32))
+                  model.net[0].weight.copy_(w0 / scale)
+                  model.net[0].bias.copy_(b0 - (w0 @ (shift / scale)))
+
+              root = Path("/models")
+              ver = root / "1"
+              ver.mkdir(parents=True, exist_ok=True)
+              onnx_path = ver / "model.onnx"
+              dummy = torch.zeros(1, 6, dtype=torch.float32)
+              torch.onnx.export(
+                  model,
+                  dummy,
+                  str(onnx_path),
+                  input_names=["input"],
+                  output_names=["logits"],
+                  dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
+                  opset_version=17,
+              )
+              for stale in ("model-settings.json", "model.joblib", "model.onnx"):
+                  p = root / stale
+                  if p.exists():
+                      p.unlink()
+              print("wrote", onnx_path, "bytes", onnx_path.stat().st_size)
+              with torch.no_grad():
+                  pred = model(torch.from_numpy(X[:5])).argmax(1).tolist()
+              print("sample_preds", pred)
+              print("features", [
+                  "geo_distance_from_last_txn", "spend_vs_median_ratio",
+                  "card_chip_present", "pin_authenticated",
+                  "ecommerce_channel", "known_merchant_repeat",
+              ])
+              PY
+          volumeMounts:
+            - name: model
+              mountPath: /models
+      volumes:
+        - name: model
+          persistentVolumeClaim:
+            claimName: fd-gitops-fraud-model

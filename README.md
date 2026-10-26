@@ -1,25 +1,49 @@
-﻿# Fraud MLOps — GitOps demo (`fd-gitops`)
+﻿# Fraud MLOps — customer GitOps (`fd-gitops`)
 
-**Feast online store is always PostgreSQL** (lab = dummy Postgres container; customer = your PG). Never swapped to Redis.
+**Customer only.** Real S3 + real PostgreSQL for Feast online. No lab MinIO, no dummy Postgres.
 
-### Lab / dummy (one apply — Argo syncs platform)
+## What Argo deploys
+
+| Resource | Name |
+|----------|------|
+| Namespace | `fd-gitops` |
+| Argo Application | `fd-gitops` → Helm `chart/` + `values.yaml` |
+| DSPA | `fd-gitops-dspa` (operator MariaDB) |
+| FeatureStore | `fd-gitops-fs` (Postgres online, S3 offline) |
+
+Site hosts/buckets are **never** committed. Inject via `configure_argo_site.sh`.
+
+## OCP command shell — customer deploy
 
 ```bash
-oc apply -f argocd/application-lab.yaml
-# Console: GitOps → Applications → openshift-gitops → fd-gitops
-```
+git clone https://github.com/varunchach/fd_demo.git && cd fd_demo
+chmod +x scripts/*.sh
 
-### Customer (env once + one script)
+# --- your site values (required) ---
+export AWS_ACCESS_KEY_ID='...'
+export AWS_SECRET_ACCESS_KEY='...'
+export AWS_S3_ENDPOINT='https://<customer-s3>'
+export AWS_DEFAULT_REGION='us-east-1'
+export PIPELINE_BUCKET='...'
+export FEAST_BUCKET='...'
 
-```bash
-export PIPELINE_BUCKET=... FEAST_BUCKET=... AWS_S3_ENDPOINT=... PG_HOST=... PG_PORT=... PG_USER=... PG_PASSWORD=...
+export PG_HOST='...'
+export PG_PORT='...'          # required — no default
+export PG_USER='...'
+export PG_PASSWORD='...'
+export PG_DATABASE='fd_gitops'
+
+# --- one shot ---
 ./scripts/bootstrap_gitops.sh
 ```
 
-**Where to look:** **[docs/WHERE_TO_LOOK.md](docs/WHERE_TO_LOOK.md)** · Details: **[docs/CLIENT_DEMO.md](docs/CLIENT_DEMO.md)**
+Stepped (same result):
 
-| Git (Argo) | Lab | Customer |
-|------------|-----|----------|
-| DSPA + operator MariaDB | `values-lab.yaml` | `configure_argo_site.sh` |
-| FeatureStore + **Postgres** | in-cluster PG container | your PG secret |
-| S3 secrets | from values-lab | `apply_fd_gitops_secrets.sh` |
+```bash
+./scripts/apply_fd_gitops_secrets.sh   # 3 secrets
+./scripts/configure_argo_site.sh       # Argo Application + helm params + sync
+# wait: FeatureStore Ready + ds-pipeline Service
+./scripts/run_demo_e2e.sh              # seed → materialize → pipeline
+```
+
+**Docs:** [docs/CLIENT_DEMO.md](docs/CLIENT_DEMO.md) · [docs/WHERE_TO_LOOK.md](docs/WHERE_TO_LOOK.md)

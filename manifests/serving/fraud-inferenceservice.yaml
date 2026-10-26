@@ -1,0 +1,29 @@
+# RHOAI-standard: OVMS + ONNX (required for TrustyAI per Monitoring your AI systems).
+# Runtime: oc process kserve-ovms -n redhat-ods-applications | oc apply -n fd-gitops -f -
+# Model:   oc apply -f manifests/serving/seed-onnx-job.yaml
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: fd-gitops-fraud
+  namespace: fd-gitops
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    openshift.io/display-name: "fd-gitops-fraud"
+    serving.kserve.io/deploymentMode: RawDeployment
+    security.opendatahub.io/enable-auth: "false"
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+        version: "1"
+      runtime: kserve-ovms
+      storageUri: pvc://fd-gitops-fraud-model/
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi

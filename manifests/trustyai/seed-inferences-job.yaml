@@ -1,0 +1,87 @@
+# Seed TrustyAI with model metadata via /data/upload (RHOAI docs).
+# Required before UI "Configure bias metric" — needs logged/uploaded inferences.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fd-gitops-trustyai-seed-data
+  namespace: fd-gitops
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: python:3.11-slim
+          env:
+            - name: HOME
+              value: /tmp
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --no-cache-dir --user requests==2.32.3
+              export PATH=/tmp/.local/bin:$PATH
+              python - <<'PY'
+              import math, requests, urllib3
+              urllib3.disable_warnings()
+              TRUSTY = "https://trustyai-service.fd-gitops.svc.cluster.local"
+              # Prefer in-cluster TLS service; fall back to http svc :80
+              MODEL = "fd-gitops-fraud"
+              s = requests.Session()
+              s.verify = False
+
+              def logits(row):
+                  # Same Gemm as demo ONNX: rough local score so upload has outputs
+                  # W row0/row1 from seed-onnx-job
+                  w0 = [0.01, 0.02, -0.1, -0.1, 0.15, -0.05]
+                  w1 = [-0.01, -0.02, 0.1, 0.1, -0.15, 0.05]
+                  b0, b1 = 0.4, -0.4
+                  l0 = b0 + sum(a * b for a, b in zip(row, w0))
+                  l1 = b1 + sum(a * b for a, b in zip(row, w1))
+                  return [l0, l1]
+
+              ok = 0
+              for i in range(60):
+                  ecom = 1.0 if i % 2 == 0 else 0.0
+                  row = [20.0 + i, 1.0 + (i % 5) * 0.2, 1.0, 1.0, ecom, 1.0 if i % 3 else 0.0]
+                  l0, l1 = logits(row)
+                  payload = {
+                      "model_name": MODEL,
+                      "data_tag": "training",
+                      "request": {
+                          "id": f"seed-{i}",
+                          "inputs": [{
+                              "name": "input",
+                              "shape": [1, 6],
+                              "datatype": "FP32",
+                              "data": row,
+                          }],
+                      },
+                      "response": {
+                          "model_name": MODEL,
+                          "id": f"seed-{i}",
+                          "outputs": [{
+                              "name": "logits",
+                              "shape": [1, 2],
+                              "datatype": "FP32",
+                              "data": [l0, l1],
+                          }],
+                      },
+                  }
+                  for base in (TRUSTY, "http://trustyai-service.fd-gitops.svc.cluster.local"):
+                      try:
+                          r = s.post(f"{base}/data/upload", json=payload, timeout=30)
+                          print(i, base, r.status_code, r.text[:160])
+                          if r.ok:
+                              ok += 1
+                              break
+                      except Exception as e:
+                          print(i, base, "err", e)
+              info = s.get(f"{TRUSTY}/info", timeout=30)
+              print("info", info.status_code, info.text[:800])
+              print("uploaded_ok", ok)
+              if ok < 1:
+                  raise SystemExit("no uploads succeeded")
+              PY

@@ -40,10 +40,14 @@ spec:
               value: fd-gitops-training
             - name: RUN_NAME
               value: fd-gitops-e2e
+            - name: UPLOAD_NEW_VERSION
+              value: "true"
             - name: PIPELINE_SA
               value: pipeline-runner-fd-gitops-dspa
             - name: S3_KEY
               value: fd-gitops/raw/transactions.csv
+            - name: MODEL_S3_KEY
+              value: fd-gitops/models/fraud-model.pkl
           command: ["python", "/scripts/submit_pipeline_run.py"]
           volumeMounts:
             - name: scripts

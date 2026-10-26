@@ -1,0 +1,121 @@
+# Simple always-on fraud scorer (Deployment + Service + Route).
+# Use this when KServe runtime images are hard to pull; still serves model.joblib from PVC.
+#
+# Prereq: export-model-job completed
+# oc apply -f manifests/serving/fraud-predictor-deployment.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fd-gitops-fraud-serve
+  namespace: fd-gitops
+data:
+  serve.py: |
+    import joblib
+    import numpy as np
+    from flask import Flask, jsonify, request
+
+    MODEL = joblib.load("/models/model.joblib")
+    app = Flask(__name__)
+
+    @app.get("/health")
+    def health():
+        return jsonify({"status": "ok", "model": "fd-gitops-fraud"})
+
+    @app.post("/predict")
+    def predict():
+        body = request.get_json(force=True) or {}
+        # expects {"instances": [[f1..f6], ...]} in Feature Store order:
+        # geo_distance_from_last_txn, spend_vs_median_ratio, card_chip_present,
+        # pin_authenticated, ecommerce_channel, known_merchant_repeat
+        instances = body.get("instances") or body.get("inputs") or []
+        if not instances:
+            return jsonify({"error": "provide instances: [[...6 floats...]]"}), 400
+        X = np.asarray(instances, dtype=float)
+        proba = MODEL.predict_proba(X)[:, 1].tolist()
+        pred = MODEL.predict(X).tolist()
+        return jsonify({"predictions": pred, "scores": proba})
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8080)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fd-gitops-fraud-scorer
+  namespace: fd-gitops
+  labels:
+    app: fd-gitops-fraud-scorer
+    opendatahub.io/dashboard: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fd-gitops-fraud-scorer
+  template:
+    metadata:
+      labels:
+        app: fd-gitops-fraud-scorer
+    spec:
+      serviceAccountName: fd-gitops-model-export
+      containers:
+        - name: scorer
+          image: python:3.11-slim
+          env:
+            - name: HOME
+              value: /tmp
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --no-cache-dir --user flask joblib scikit-learn==1.5.2 numpy
+              export PATH="/tmp/.local/bin:$PATH"
+              python /app/serve.py
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts:
+            - name: model
+              mountPath: /models
+              readOnly: true
+            - name: code
+              mountPath: /app
+      volumes:
+        - name: model
+          persistentVolumeClaim:
+            claimName: fd-gitops-fraud-model
+        - name: code
+          configMap:
+            name: fd-gitops-fraud-serve
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fd-gitops-fraud-scorer
+  namespace: fd-gitops
+spec:
+  selector:
+    app: fd-gitops-fraud-scorer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: fd-gitops-fraud-scorer
+  namespace: fd-gitops
+spec:
+  to:
+    kind: Service
+    name: fd-gitops-fraud-scorer
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

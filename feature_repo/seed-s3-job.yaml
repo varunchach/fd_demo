@@ -34,7 +34,7 @@ spec:
           args:
             - |
               set -euo pipefail
-              pip install -q boto3 pyarrow scikit-learn pandas
+              pip install -q boto3 pyarrow numpy pandas
               python /repo/scripts/seed_feast_s3.py
           volumeMounts:
             - name: repo

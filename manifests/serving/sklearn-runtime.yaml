@@ -1,0 +1,35 @@
+# Prefer cluster MLServer (see mlserver-runtime.yaml from RHOAI template).
+# Kept as fallback name kserve-sklearn pointing at the same RH MLServer image
+# so quay.io pulls are never required on restricted lab clusters.
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: kserve-sklearn
+  namespace: fd-gitops
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    openshift.io/display-name: "KServe sklearn via MLServer (fd-gitops)"
+    serving.kserve.io/server-type: mlserver
+spec:
+  multiModel: false
+  supportedModelFormats:
+    - name: sklearn
+      version: "1"
+      autoSelect: true
+  protocolVersions:
+    - v2
+  containers:
+    - name: kserve-container
+      image: registry.redhat.io/rhoai/odh-mlserver-rhel9@sha256:00e7adb823dc1edb2c3dc1f51dfa5a8745876c7756cbcaae5c118f4fd9ecbaa0
+      env:
+        - name: MLSERVER_MODEL_IMPLEMENTATION
+          value: "{{.Labels.modelClass}}"
+        - name: MLSERVER_HTTP_PORT
+          value: "8080"
+        - name: MLSERVER_MODELS_DIR
+          value: /mnt/models
+      args: []
+      ports:
+        - containerPort: 8080
+          protocol: TCP

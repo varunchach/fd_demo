@@ -1,0 +1,34 @@
+# Shared PVC + SA for model export Jobs (lab/demo).
+# ONNX export Job: manifests/serving/export-onnx-job.yaml
+# oc apply -f manifests/serving/export-model-job.yaml -n fd-gitops
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fd-gitops-fraud-model
+  namespace: fd-gitops
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fd-gitops-model-export
+  namespace: fd-gitops
+---
+# Allow pip install in container (anyuid) — lab/demo only
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fd-gitops-model-export-anyuid
+  namespace: fd-gitops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+  - kind: ServiceAccount
+    name: fd-gitops-model-export
+    namespace: fd-gitops

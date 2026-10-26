@@ -1,0 +1,130 @@
+# Demo: send OVMS inferences + schedule SPD bias metric (RHOAI TrustyAI CLI path).
+# Docs: Monitoring your AI systems → Creating a bias metric by using the CLI
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fd-gitops-trustyai-bias
+  namespace: fd-gitops
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: configure
+          image: python:3.11-slim
+          env:
+            - name: HOME
+              value: /tmp
+            - name: PIP_DISABLE_PIP_VERSION_CHECK
+              value: "1"
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --no-cache-dir --user requests==2.32.3
+              export PATH="/tmp/.local/bin:$PATH"
+              python - <<'PY'
+              import json, time, urllib3, requests
+              urllib3.disable_warnings()
+              MODEL = "fd-gitops-fraud"
+              # KServe Service exposes http:80 (rbac-proxy → OVMS), not container :8080/:8888
+              PREDICT = "http://fd-gitops-fraud-predictor.fd-gitops.svc.cluster.local:80"
+              TRUSTY = "https://trustyai-service.fd-gitops.svc.cluster.local"
+              s = requests.Session()
+              s.verify = False
+
+              def infer(row):
+                  body = {
+                      "inputs": [{
+                          "name": "input",
+                          "shape": [1, 6],
+                          "datatype": "FP32",
+                          "data": row,
+                      }]
+                  }
+                  r = s.post(f"{PREDICT}/v2/models/{MODEL}/infer", json=body, timeout=30)
+                  r.raise_for_status()
+                  return r.json()
+
+              # Generate a few demo rows (feature 4 = ecommerce_channel for SPD)
+              rows = []
+              for i in range(40):
+                  ecom = 1.0 if i % 2 == 0 else 0.0
+                  row = [20.0 + i, 1.0 + (i % 5) * 0.2, 1.0, 1.0, ecom, 1.0 if i % 3 else 0.0]
+                  out = infer(row)
+                  rows.append((row, out))
+                  # Also upload joint payload as training/reference data
+                  outputs = out.get("outputs") or []
+                  payload = {
+                      "model_name": MODEL,
+                      "data_tag": "training",
+                      "request": {
+                          "id": f"train-{i}",
+                          "inputs": [{
+                              "name": "input",
+                              "shape": [1, 6],
+                              "datatype": "FP32",
+                              "data": row,
+                          }],
+                      },
+                      "response": {
+                          "model_name": MODEL,
+                          "id": f"train-{i}",
+                          "outputs": outputs,
+                      },
+                  }
+                  ur = s.post(f"{TRUSTY}/data/upload", json=payload, timeout=30)
+                  print("upload", i, ur.status_code, ur.text[:120])
+
+              time.sleep(3)
+              info = s.get(f"{TRUSTY}/info", timeout=30)
+              print("info", info.status_code, info.text[:500])
+
+              # Name mapping (human-readable) — docs /info/names
+              names = {
+                  "modelId": MODEL,
+                  "inputMapping": {
+                      "input-0": "geo_distance_from_last_txn",
+                      "input-1": "spend_vs_median_ratio",
+                      "input-2": "card_chip_present",
+                      "input-3": "pin_authenticated",
+                      "input-4": "ecommerce_channel",
+                      "input-5": "known_merchant_repeat",
+                  },
+                  "outputMapping": {
+                      "logits-0": "score_not_fraud",
+                      "logits-1": "score_fraud",
+                  },
+              }
+              nr = s.post(f"{TRUSTY}/info/names", json=names, timeout=30)
+              print("names", nr.status_code, nr.text[:200])
+
+              # SPD on ecommerce_channel (docs example shape)
+              # Use raw index names if mapping not applied yet
+              spd = {
+                  "modelId": MODEL,
+                  "protectedAttribute": "ecommerce_channel",
+                  "privilegedAttribute": 0.0,
+                  "unprivilegedAttribute": 1.0,
+                  "outcomeName": "score_fraud",
+                  "favorableOutcome": 0.0,
+                  "batchSize": 40,
+              }
+              # Try mapped names first; fall back to tensor names from info
+              for attempt in (spd, {
+                  **spd,
+                  "protectedAttribute": "input-4",
+                  "outcomeName": "logits-1",
+              }):
+                  sr = s.post(
+                      f"{TRUSTY}/metrics/group/fairness/spd/request",
+                      json=attempt,
+                      timeout=60,
+                  )
+                  print("spd", attempt["protectedAttribute"], sr.status_code, sr.text[:400])
+                  if sr.ok:
+                      break
+              print("done")
+              PY

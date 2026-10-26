@@ -1,16 +1,13 @@
 # =============================================================================
-# ROBUST DESIGN (read this)
+# Customer platform values (Argo CD syncs PLATFORM only)
 # -----------------------------------------------------------------------------
-# Argo CD syncs PLATFORM only:
-#   - DSPA (with operator-managed MariaDB)
+#   - DSPA (operator-managed MariaDB)
 #   - FeatureStore (Postgres online + S3 offline/registry)
 #   - RBAC for optional manual jobs
 #
-# Demo data path (seed → materialize → submit) is NOT an Argo PostSync hook.
-# Those Jobs blocked/failed Argo sync and looked like "everything is broken".
-# Run them AFTER platform is Ready:  ./scripts/run_demo_e2e.sh
-#
 # Site S3 host/buckets: NEVER commit — set via ./scripts/configure_argo_site.sh
+# Secrets: once via ./scripts/apply_fd_gitops_secrets.sh
+# Demo path after Ready: ./scripts/run_demo_e2e.sh
 # =============================================================================
 
 git:
@@ -20,7 +17,6 @@ git:
 pipelines:
   enabled: true
   dspaName: fd-gitops-dspa
-  # Operator-managed MariaDB (do not use DIY Deployment — caused :3306 timeouts here)
   deployMariaDB: true
   deployCustomMariaDB: false
   mariaDbName: fd-gitops-db
@@ -44,33 +40,15 @@ featureStore:
   enabled: true
   name: fd-gitops-fs
   feastProject: fd_gitops
-  # Always PostgreSQL for online store (never swap to Redis/MariaDB).
+  # Always PostgreSQL for online store.
   onlinePostgresSecret: fd-gitops-feast-pg
   onlinePostgresSecretKey: feature_store.yaml
   offlineS3Secret: fd-gitops-feast-s3
   offlineS3Bucket: ""
   offlineS3Prefix: fd-gitops/features
   registryS3Path: ""
-  # Customer default: clone feature_repo from Git. Lab sets false until S3 parquet exists.
   cloneFeatureRepo: true
   localRegistry: false
-  # Lab only: deploy a Postgres container and write the same secret format.
-  # Customer: false + real PG via apply_fd_gitops_secrets.sh
-  deployLabPostgres: false
-  labPostgres:
-    name: fd-gitops-postgres
-    user: feast
-    password: feastpass
-    database: feast
-    image: registry.redhat.io/rhel9/postgresql-15:latest
-
-# Lab overlays live in values-lab.yaml (createS3Secrets, dummy MinIO endpoint).
-lab:
-  createS3Secrets: false
-  s3:
-    endpoint: ""
-    accessKey: ""
-    secretKey: ""
 
 # OFF by default — never block Argo sync with demo Jobs
 hooks:

@@ -55,21 +55,24 @@ if f'path="{LOCAL_PARQUET.as_posix()}"' not in patched:
     )
 (REPO / "features.py").write_text(patched)
 
+FEATURE_VIEW = "fraud_txn_risk_signals"
+FEATURE_REFS = [
+    f"{FEATURE_VIEW}:geo_distance_from_last_txn",
+    f"{FEATURE_VIEW}:spend_vs_median_ratio",
+    f"{FEATURE_VIEW}:card_chip_present",
+    f"{FEATURE_VIEW}:pin_authenticated",
+    f"{FEATURE_VIEW}:ecommerce_channel",
+    f"{FEATURE_VIEW}:known_merchant_repeat",
+]
+
 store = FeatureStore(repo_path=str(REPO))
 store.apply([])
-store.write_to_online_store("fraud_features", df)
+store.write_to_online_store(FEATURE_VIEW, df)
 
 entity_df = df[["transaction_id", "event_timestamp"]].copy()
 job = store.get_historical_features(
     entity_df=entity_df,
-    features=[
-        "fraud_features:distance_from_last_transaction",
-        "fraud_features:ratio_to_median_purchase_price",
-        "fraud_features:used_chip",
-        "fraud_features:used_pin_number",
-        "fraud_features:online_order",
-        "fraud_features:repeat_retailer",
-    ],
+    features=FEATURE_REFS,
 )
 
 from feast.infra.offline_stores.file_source import SavedDatasetFileStorage
@@ -80,7 +83,7 @@ dataset = store.create_saved_dataset(
     name="fraud_training_dataset",
     storage=SavedDatasetFileStorage(path=str(out)),
     tags={"purpose": "demo-training"},
-    feature_service_name="fraud_txn_service",
+    feature_service_name="fraud_scoring_service",
     allow_overwrite=True,
 )
 print("feature_services", [fs.name for fs in store.list_feature_services()])

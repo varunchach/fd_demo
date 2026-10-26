@@ -1,6 +1,6 @@
 # PIPELINE DEFINITION
 # Name: fd-gitops-pipeline
-# Description: S3 -> Feature Store -> Train/MLflow (fd-gitops)
+# Description: Ingest -> Features -> Train/MLflow/S3 (serve via GitOps OVMS)
 # Inputs:
 #    aws_access_key_id: str
 #    aws_secret_access_key: str
@@ -8,8 +8,7 @@
 #    mlflow_experiment: str [Default: 'fd-gitops-training']
 #    mlflow_tracking_uri: str
 #    model_name: str [Default: 'fd-gitops-model']
-#    model_version: str [Default: '1.0.0']
-#    registry_server_address: str [Default: '']
+#    model_s3_key: str [Default: 'fd-gitops/models/fraud-model.pkl']
 #    s3_bucket: str
 #    s3_endpoint: str
 #    s3_key: str [Default: 'fd-gitops/raw/transactions.csv']
@@ -60,6 +59,14 @@ components:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
       parameters:
+        aws_access_key_id:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
+        aws_secret_access_key:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
         mlflow_experiment:
           parameterType: STRING
         mlflow_tracking_uri:
@@ -68,11 +75,15 @@ components:
           defaultValue: fd-gitops-model
           isOptional: true
           parameterType: STRING
-        model_version:
-          defaultValue: 1.0.0
+        model_s3_key:
+          defaultValue: fd-gitops/models/fraud-model.pkl
           isOptional: true
           parameterType: STRING
-        registry_server_address:
+        s3_bucket:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
+        s3_endpoint:
           defaultValue: ''
           isOptional: true
           parameterType: STRING
@@ -97,9 +108,9 @@ deploymentSpec:
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'boto3==1.35.36'\
-          \ 'pandas==2.2.3' 'scikit-learn==1.5.2'  &&  python3 -m pip install --quiet\
-          \ --no-warn-script-location 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
-          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+          \ 'pandas==2.2.3' 'numpy==1.26.4'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -116,25 +127,37 @@ deploymentSpec:
           \ str,\n    aws_secret_access_key: str,\n):\n    \"\"\"Step 1: Ingest raw\
           \ transactions from S3. Creates object on first run.\"\"\"\n    import io\n\
           \n    import boto3\n    import pandas as pd\n    from botocore.exceptions\
-          \ import ClientError\n    from sklearn.datasets import make_classification\n\
-          \n    names = [\n        \"distance_from_last_transaction\",\n        \"\
-          ratio_to_median_purchase_price\",\n        \"used_chip\",\n        \"used_pin_number\"\
-          ,\n        \"online_order\",\n        \"repeat_retailer\",\n    ]\n    client\
-          \ = boto3.client(\n        \"s3\",\n        endpoint_url=s3_endpoint,\n\
-          \        aws_access_key_id=aws_access_key_id,\n        aws_secret_access_key=aws_secret_access_key,\n\
-          \        region_name=\"us-east-1\",\n    )\n    try:\n        client.head_bucket(Bucket=s3_bucket)\n\
+          \ import ClientError\n\n    names = [\n        \"geo_distance_from_last_txn\"\
+          ,\n        \"spend_vs_median_ratio\",\n        \"card_chip_present\",\n\
+          \        \"pin_authenticated\",\n        \"ecommerce_channel\",\n      \
+          \  \"known_merchant_repeat\",\n    ]\n    client = boto3.client(\n     \
+          \   \"s3\",\n        endpoint_url=s3_endpoint,\n        aws_access_key_id=aws_access_key_id,\n\
+          \        aws_secret_access_key=aws_secret_access_key,\n        region_name=\"\
+          us-east-1\",\n    )\n    try:\n        client.head_bucket(Bucket=s3_bucket)\n\
           \    except ClientError:\n        client.create_bucket(Bucket=s3_bucket)\n\
           \n    try:\n        body = client.get_object(Bucket=s3_bucket, Key=s3_key)[\"\
           Body\"].read()\n        df = pd.read_csv(io.BytesIO(body))\n        print(f\"\
           Loaded s3://{s3_bucket}/{s3_key} ({len(df)} rows)\")\n    except ClientError:\n\
-          \        X, y = make_classification(\n            n_samples=100, n_features=len(names),\
-          \ n_informative=4,\n            n_redundant=0, weights=[0.9, 0.1], class_sep=1.2,\
-          \ random_state=42,\n        )\n        df = pd.DataFrame(X, columns=names)\n\
-          \        df[\"fraud\"] = y\n        df[\"transaction_id\"] = df.index\n\
-          \        buf = io.BytesIO()\n        df.to_csv(buf, index=False)\n     \
-          \   client.put_object(Bucket=s3_bucket, Key=s3_key, Body=buf.getvalue())\n\
-          \        print(f\"Seeded + loaded s3://{s3_bucket}/{s3_key} ({len(df)} rows)\"\
-          )\n\n    df.to_csv(output_data.path, index=False)\n\n"
+          \        # Interpretable synthetic txn risk signals (km, spend ratio, 0/1\
+          \ flags)\n        import numpy as np\n\n        rng = np.random.default_rng(42)\n\
+          \        n = 100\n        fraud = rng.random(n) < 0.1\n        geo = np.where(fraud,\
+          \ rng.uniform(200, 4000, n), rng.exponential(12.0, n).clip(0, 80))\n   \
+          \     spend = np.where(\n            fraud,\n            rng.uniform(4.0,\
+          \ 18.0, n),\n            rng.lognormal(0.0, 0.35, n).clip(0.2, 3.5),\n \
+          \       )\n        ecommerce = np.where(fraud, 1, (rng.random(n) < 0.35).astype(int))\n\
+          \        chip = np.where(ecommerce == 1, 0, (rng.random(n) < 0.85).astype(int))\n\
+          \        pin = np.where((chip == 1) & (ecommerce == 0), (rng.random(n) <\
+          \ 0.9).astype(int), 0)\n        known = np.where(fraud, 0, (rng.random(n)\
+          \ < 0.7).astype(int))\n        df = pd.DataFrame(\n            {\n     \
+          \           \"geo_distance_from_last_txn\": geo,\n                \"spend_vs_median_ratio\"\
+          : spend,\n                \"card_chip_present\": chip,\n               \
+          \ \"pin_authenticated\": pin,\n                \"ecommerce_channel\": ecommerce,\n\
+          \                \"known_merchant_repeat\": known,\n                \"fraud\"\
+          : fraud.astype(int),\n                \"transaction_id\": range(n),\n  \
+          \          }\n        )\n        buf = io.BytesIO()\n        df.to_csv(buf,\
+          \ index=False)\n        client.put_object(Bucket=s3_bucket, Key=s3_key,\
+          \ Body=buf.getvalue())\n        print(f\"Seeded + loaded s3://{s3_bucket}/{s3_key}\
+          \ ({len(df)} rows)\")\n\n    df.to_csv(output_data.path, index=False)\n\n"
         image: python:3.11
     exec-process-features:
       container:
@@ -167,35 +190,41 @@ deploymentSpec:
           \    output_data: dsl.Output[dsl.Dataset],\n    feast_online_server_url:\
           \ str,\n):\n    \"\"\"Step 2: Join Feast online features with labels from\
           \ S3 ingest.\"\"\"\n    import pandas as pd\n    import requests\n\n   \
-          \ names = [\n        \"distance_from_last_transaction\",\n        \"ratio_to_median_purchase_price\"\
-          ,\n        \"used_chip\",\n        \"used_pin_number\",\n        \"online_order\"\
-          ,\n        \"repeat_retailer\",\n    ]\n    raw = pd.read_csv(input_data.path)\n\
+          \ names = [\n        \"geo_distance_from_last_txn\",\n        \"spend_vs_median_ratio\"\
+          ,\n        \"card_chip_present\",\n        \"pin_authenticated\",\n    \
+          \    \"ecommerce_channel\",\n        \"known_merchant_repeat\",\n    ]\n\
+          \    feature_view = \"fraud_txn_risk_signals\"\n    raw = pd.read_csv(input_data.path)\n\
           \    if \"transaction_id\" not in raw.columns:\n        raw[\"transaction_id\"\
           ] = raw.index\n    ids = raw[\"transaction_id\"].astype(int).tolist()\n\
           \    labels = raw[\"fraud\"].tolist() if \"fraud\" in raw.columns else [0]\
-          \ * len(ids)\n\n    rows = []\n    for start in range(0, len(ids), 500):\n\
-          \        batch = ids[start : start + 500]\n        r = requests.post(\n\
-          \            f\"{feast_online_server_url.rstrip('/')}/get-online-features\"\
-          ,\n            json={\n                \"features\": [f\"fraud_features:{n}\"\
-          \ for n in names],\n                \"entities\": {\"transaction_id\": batch},\n\
-          \            },\n            timeout=60,\n            verify=False,\n  \
-          \      )\n        r.raise_for_status()\n        body = r.json()\n      \
-          \  rows.append(\n            pd.DataFrame(\n                dict(zip(body[\"\
-          metadata\"][\"feature_names\"], [x[\"values\"] for x in body[\"results\"\
-          ]]))\n            )\n        )\n\n    out = pd.concat(rows, ignore_index=True)\n\
-          \    keep = [c for c in out.columns if c in names or c == \"transaction_id\"\
-          ]\n    out = out[keep].copy()\n    # Online store may be empty (no materialize)\
-          \ \u2014 fall back to ingest columns\n    raw_by_id = raw.set_index(\"transaction_id\"\
-          , drop=False)\n    for n in names:\n        if n not in out.columns:\n \
-          \           out[n] = float(\"nan\")\n        miss = out[n].isna() if n in\
-          \ out.columns else pd.Series([True] * len(out))\n        if miss.any() and\
-          \ n in raw.columns:\n            out.loc[miss, n] = (\n                out.loc[miss,\
-          \ \"transaction_id\"].map(raw_by_id[n]).to_numpy()\n                if \"\
-          transaction_id\" in out.columns\n                else raw[n].iloc[: miss.sum()].to_numpy()\n\
+          \ * len(ids)\n\n    rows = []\n    feast_ok = False\n    try:\n        for\
+          \ start in range(0, len(ids), 500):\n            batch = ids[start : start\
+          \ + 500]\n            r = requests.post(\n                f\"{feast_online_server_url.rstrip('/')}/get-online-features\"\
+          ,\n                json={\n                    \"features\": [f\"{feature_view}:{n}\"\
+          \ for n in names],\n                    \"entities\": {\"transaction_id\"\
+          : batch},\n                },\n                timeout=60,\n           \
+          \     verify=False,\n            )\n            r.raise_for_status()\n \
+          \           body = r.json()\n            rows.append(\n                pd.DataFrame(\n\
+          \                    dict(zip(body[\"metadata\"][\"feature_names\"], [x[\"\
+          values\"] for x in body[\"results\"]]))\n                )\n           \
+          \ )\n        feast_ok = True\n    except Exception as exc:\n        print(f\"\
+          Feast online unavailable ({exc}); falling back to ingest columns\")\n\n\
+          \    if feast_ok and rows:\n        out = pd.concat(rows, ignore_index=True)\n\
+          \        keep = [c for c in out.columns if c in names or c == \"transaction_id\"\
+          ]\n        out = out[keep].copy()\n    else:\n        out = raw.copy()\n\
+          \        if \"transaction_id\" not in out.columns:\n            out[\"transaction_id\"\
+          ] = out.index\n\n    # Fill any missing feature columns from ingest\n  \
+          \  raw_by_id = raw.set_index(\"transaction_id\", drop=False)\n    for n\
+          \ in names:\n        if n not in out.columns:\n            out[n] = float(\"\
+          nan\")\n        miss = out[n].isna() if n in out.columns else pd.Series([True]\
+          \ * len(out))\n        if miss.any() and n in raw.columns:\n           \
+          \ out.loc[miss, n] = (\n                out.loc[miss, \"transaction_id\"\
+          ].map(raw_by_id[n]).to_numpy()\n                if \"transaction_id\" in\
+          \ out.columns\n                else raw[n].iloc[: miss.sum()].to_numpy()\n\
           \            )\n    out[names] = out[names].apply(pd.to_numeric, errors=\"\
           coerce\").fillna(0.0)\n    out[\"fraud\"] = labels[: len(out)]\n    out.to_csv(output_data.path,\
-          \ index=False)\n    print(f\"Feature Store returned {len(out)} rows (fillna/fallback\
-          \ applied)\")\n\n"
+          \ index=False)\n    print(f\"Feature step rows={len(out)} feast_ok={feast_ok}\"\
+          )\n\n"
         image: python:3.11
     exec-train-log-register:
       container:
@@ -210,8 +239,8 @@ deploymentSpec:
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
-          \ 'scikit-learn==1.5.2' 'mlflow[kubernetes]==3.14.0' 'model-registry==0.2.21'\
-          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0'\
+          \ 'scikit-learn==1.5.2' 'mlflow[kubernetes]==3.14.0' 'boto3==1.35.36'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
           $0\" \"$@\"\n"
         - sh
@@ -227,18 +256,20 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train_log_register(\n    input_data: dsl.Input[dsl.Dataset],\n\
           \    model_out: dsl.Output[dsl.Model],\n    mlflow_tracking_uri: str,\n\
-          \    mlflow_experiment: str,\n    registry_server_address: str = \"\",\n\
-          \    model_name: str = \"fd-gitops-model\",\n    model_version: str = \"\
-          1.0.0\",\n):\n    \"\"\"Step 3: Train sklearn model, log to MLflow, optionally\
-          \ register.\"\"\"\n    import json\n    import os\n    import pickle\n\n\
-          \    import mlflow\n    import mlflow.sklearn\n    import pandas as pd\n\
-          \    from sklearn.linear_model import LogisticRegression\n    from sklearn.metrics\
-          \ import accuracy_score, precision_score, recall_score\n    from sklearn.model_selection\
-          \ import train_test_split\n    from sklearn.preprocessing import StandardScaler\n\
-          \n    names = [\n        \"distance_from_last_transaction\",\n        \"\
-          ratio_to_median_purchase_price\",\n        \"used_chip\",\n        \"used_pin_number\"\
-          ,\n        \"online_order\",\n        \"repeat_retailer\",\n    ]\n\n  \
-          \  df = pd.read_csv(input_data.path)\n    X = df[names].apply(pd.to_numeric,\
+          \    mlflow_experiment: str,\n    s3_endpoint: str = \"\",\n    s3_bucket:\
+          \ str = \"\",\n    aws_access_key_id: str = \"\",\n    aws_secret_access_key:\
+          \ str = \"\",\n    model_s3_key: str = \"fd-gitops/models/fraud-model.pkl\"\
+          ,\n    model_name: str = \"fd-gitops-model\",\n):\n    \"\"\"Step 3: Train,\
+          \ log to MLflow, save model pickle to S3 (demo artifact).\"\"\"\n    import\
+          \ io\n    import json\n    import os\n    import pickle\n\n    import mlflow\n\
+          \    import mlflow.sklearn\n    import pandas as pd\n    from sklearn.linear_model\
+          \ import LogisticRegression\n    from sklearn.metrics import accuracy_score,\
+          \ precision_score, recall_score\n    from sklearn.model_selection import\
+          \ train_test_split\n    from sklearn.preprocessing import StandardScaler\n\
+          \n    names = [\n        \"geo_distance_from_last_txn\",\n        \"spend_vs_median_ratio\"\
+          ,\n        \"card_chip_present\",\n        \"pin_authenticated\",\n    \
+          \    \"ecommerce_channel\",\n        \"known_merchant_repeat\",\n    ]\n\
+          \n    df = pd.read_csv(input_data.path)\n    X = df[names].apply(pd.to_numeric,\
           \ errors=\"coerce\").fillna(0.0)\n    y = df[\"fraud\"]\n    X_tr, X_te,\
           \ y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)\n\
           \    scaler = StandardScaler().fit(X_tr)\n    X_tr_s, X_te_s = scaler.transform(X_tr),\
@@ -275,20 +306,22 @@ deploymentSpec:
           \ pred, zero_division=0)),\n        }\n        mlflow.log_params({\"model_type\"\
           : \"logistic_regression\", \"class_weight\": \"balanced\"})\n        mlflow.log_metrics(metrics)\n\
           \        mlflow.sklearn.log_model(model, \"model\")\n        run_id = run.info.run_id\n\
-          \        artifact_uri = mlflow.get_artifact_uri(\"model\")\n\n    with open(model_out.path,\
-          \ \"wb\") as f:\n        pickle.dump({\"model\": model, \"scaler\": scaler},\
+          \        artifact_uri = mlflow.get_artifact_uri(\"model\")\n\n    artifact\
+          \ = {\"model\": model, \"scaler\": scaler, \"features\": names, \"model_name\"\
+          : model_name}\n    with open(model_out.path, \"wb\") as f:\n        pickle.dump(artifact,\
           \ f)\n    model_out.metadata.update({\"mlflow_run_id\": run_id, **metrics})\n\
-          \    print(f\"MLflow run={run_id} metrics={metrics}\")\n\n    if registry_server_address:\n\
-          \        from model_registry import ModelRegistry\n\n        reg = ModelRegistry(server_address=registry_server_address,\
-          \ port=443, author=\"fd-gitops\")\n        v = reg.register_model(\n   \
-          \         name=model_name,\n            uri=artifact_uri,\n            version=model_version,\n\
-          \            model_format_name=\"sklearn\",\n            model_format_version=\"\
-          1\",\n            metadata={\"mlflow_run_id\": run_id, **metrics},\n   \
-          \     )\n        print(f\"Registered {model_name} id={getattr(v, 'id', model_version)}\"\
+          \    print(f\"MLflow run={run_id} metrics={metrics} artifact={artifact_uri}\"\
+          )\n\n    # Save model file to S3 (simple demo publish \u2014 serving stays\
+          \ GitOps/OVMS)\n    if s3_endpoint and s3_bucket and aws_access_key_id:\n\
+          \        import boto3\n\n        buf = io.BytesIO()\n        pickle.dump(artifact,\
+          \ buf)\n        boto3.client(\n            \"s3\",\n            endpoint_url=s3_endpoint,\n\
+          \            aws_access_key_id=aws_access_key_id,\n            aws_secret_access_key=aws_secret_access_key,\n\
+          \            region_name=\"us-east-1\",\n        ).put_object(Bucket=s3_bucket,\
+          \ Key=model_s3_key, Body=buf.getvalue())\n        print(f\"Saved s3://{s3_bucket}/{model_s3_key}\"\
           )\n\n"
         image: python:3.11
 pipelineInfo:
-  description: S3 -> Feature Store -> Train/MLflow (fd-gitops)
+  description: Ingest -> Features -> Train/MLflow/S3 (serve via GitOps OVMS)
   name: fd-gitops-pipeline
 root:
   dag:
@@ -344,16 +377,22 @@ root:
                 outputArtifactKey: output_data
                 producerTask: process-features
           parameters:
+            aws_access_key_id:
+              componentInputParameter: aws_access_key_id
+            aws_secret_access_key:
+              componentInputParameter: aws_secret_access_key
             mlflow_experiment:
               componentInputParameter: mlflow_experiment
             mlflow_tracking_uri:
               componentInputParameter: mlflow_tracking_uri
             model_name:
               componentInputParameter: model_name
-            model_version:
-              componentInputParameter: model_version
-            registry_server_address:
-              componentInputParameter: registry_server_address
+            model_s3_key:
+              componentInputParameter: model_s3_key
+            s3_bucket:
+              componentInputParameter: s3_bucket
+            s3_endpoint:
+              componentInputParameter: s3_endpoint
         taskInfo:
           name: train-log-register
   inputDefinitions:
@@ -374,12 +413,8 @@ root:
         defaultValue: fd-gitops-model
         isOptional: true
         parameterType: STRING
-      model_version:
-        defaultValue: 1.0.0
-        isOptional: true
-        parameterType: STRING
-      registry_server_address:
-        defaultValue: ''
+      model_s3_key:
+        defaultValue: fd-gitops/models/fraud-model.pkl
         isOptional: true
         parameterType: STRING
       s3_bucket:

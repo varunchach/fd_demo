@@ -1,0 +1,59 @@
+# Write a tiny OVMS-safe ONNX (Gemm only) onto the model PVC.
+# No sklearn/torch conversion — demo artifact only.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fd-gitops-seed-onnx
+  namespace: fd-gitops
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 2
+  template:
+    spec:
+      serviceAccountName: fd-gitops-model-export
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: python:3.11-slim
+          env:
+            - name: HOME
+              value: /tmp
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --no-cache-dir --user onnx==1.16.2
+              export PATH="/tmp/.local/bin:$PATH"
+              python - <<'PY'
+              from pathlib import Path
+              from onnx import helper, TensorProto, checker, save
+              W = helper.make_tensor("W", TensorProto.FLOAT, [2, 6], [
+                  0.01, 0.02, -0.1, -0.1, 0.15, -0.05,
+                  -0.01, -0.02, 0.1, 0.1, -0.15, 0.05,
+              ])
+              B = helper.make_tensor("B", TensorProto.FLOAT, [2], [0.4, -0.4])
+              X = helper.make_tensor_value_info("input", TensorProto.FLOAT, ["batch", 6])
+              Y = helper.make_tensor_value_info("logits", TensorProto.FLOAT, ["batch", 2])
+              node = helper.make_node("Gemm", ["input", "W", "B"], ["logits"], alpha=1.0, beta=1.0, transB=1)
+              graph = helper.make_graph([node], "fraud_demo", [X], [Y], [W, B])
+              model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)], producer_name="fd-gitops-demo")
+              model.ir_version = 8
+              checker.check_model(model)
+              root = Path("/models")
+              ver = root / "1"
+              ver.mkdir(parents=True, exist_ok=True)
+              path = ver / "model.onnx"
+              save(model, str(path))
+              for stale in ("model.onnx", "model.joblib", "model-settings.json"):
+                  p = root / stale
+                  if p.exists():
+                      p.unlink()
+              print("wrote", path, path.stat().st_size)
+              PY
+          volumeMounts:
+            - name: model
+              mountPath: /models
+      volumes:
+        - name: model
+          persistentVolumeClaim:
+            claimName: fd-gitops-fraud-model

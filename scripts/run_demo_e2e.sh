@@ -26,10 +26,16 @@ REG=$(oc get featurestore "${FS_NAME}" -n "${NS}" \
 echo "    registry=${REG}"
 BUCKET=$(oc get secret fd-gitops-feast-s3 -n "${NS}" -o jsonpath='{.data.AWS_S3_BUCKET}' | base64 -d)
 echo "    secret bucket=${BUCKET}"
-echo "${REG}" | grep -q "s3://${BUCKET}/" || {
-  echo "ERROR: registry path bucket != secret AWS_S3_BUCKET — re-run configure_argo_site.sh"
-  exit 1
-}
+# Customer: registry must be s3://$FEAST_BUCKET/...
+# Lab: local path /feast-data/registry.db is OK
+if [[ "${REG}" == s3://* ]]; then
+  echo "${REG}" | grep -q "s3://${BUCKET}/" || {
+    echo "ERROR: registry path bucket != secret AWS_S3_BUCKET — re-run configure_argo_site.sh"
+    exit 1
+  }
+else
+  echo "    lab local registry OK"
+fi
 
 echo "==> wait DSPA API Service"
 SVC="ds-pipeline-${DSPA_NAME}"
