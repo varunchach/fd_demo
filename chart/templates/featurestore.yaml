@@ -1,5 +1,4 @@
 {{- if .Values.featureStore.enabled }}
-{{- /* Lab can use local registry (official sample style). Customer uses S3 path. */ -}}
 {{- $useLocalReg := .Values.featureStore.localRegistry | default false }}
 {{- if and (not $useLocalReg) (not .Values.featureStore.offlineS3Bucket) }}
 {{- fail "featureStore.offlineS3Bucket is required unless featureStore.localRegistry=true" }}
@@ -8,7 +7,7 @@
 {{- if $useLocalReg }}
 {{- $registryPath = .Values.featureStore.localRegistryPath | default "/feast-data/registry.db" }}
 {{- else if not $registryPath }}
-{{- $registryPath = printf "s3://%s/fd-gitops/registry.db" .Values.featureStore.offlineS3Bucket }}
+{{- $registryPath = printf "s3://%s/%s/registry.db" .Values.featureStore.offlineS3Bucket .Release.Namespace }}
 {{- end }}
 apiVersion: feast.dev/v1
 kind: FeatureStore
@@ -21,7 +20,6 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
 spec:
   feastProject: {{ .Values.featureStore.feastProject }}
-{{- /* Do NOT use "| default true" — Helm treats false as empty and would always clone. */ -}}
 {{- if .Values.featureStore.cloneFeatureRepo }}
   feastProjectDir:
     git:
@@ -32,7 +30,6 @@ spec:
   authz:
     noAuth: true
   services:
-    # Online = PostgreSQL only (never Redis/MariaDB)
     onlineStore:
       persistence:
         store:
@@ -68,6 +65,8 @@ spec:
             - secretRef:
                 name: {{ .Values.featureStore.offlineS3Secret }}
           env:
+            - name: FEAST_S3_PREFIX
+              value: {{ .Values.featureStore.offlineS3Prefix | quote }}
             - name: AWS_S3_FORCE_PATH_STYLE
               value: "true"
             - name: AWS_REQUEST_CHECKSUM_CALCULATION
@@ -78,5 +77,20 @@ spec:
         persistence:
           file:
             path: {{ $registryPath | quote }}
-    ui: {}
+    # UI also reads registry from S3 — must have the same credentials (NoCredentialsError otherwise)
+    ui:
+{{- if not $useLocalReg }}
+      envFrom:
+        - secretRef:
+            name: {{ .Values.featureStore.offlineS3Secret }}
+      env:
+        - name: FEAST_S3_PREFIX
+          value: {{ .Values.featureStore.offlineS3Prefix | quote }}
+        - name: AWS_S3_FORCE_PATH_STYLE
+          value: "true"
+        - name: AWS_REQUEST_CHECKSUM_CALCULATION
+          value: WHEN_REQUIRED
+        - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+          value: WHEN_REQUIRED
+{{- end }}
 {{- end }}
