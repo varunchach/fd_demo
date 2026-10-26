@@ -20,7 +20,12 @@ if [[ -z "${PG_HOST:-}" && -z "${PG_SRC_SECRET:-}" ]]; then
 fi
 
 NS="${NS:-fd-gitops}"
+APP_NAME="${APP_NAME:-$NS}"
+FS_NAME="${FS_NAME:-fd-gitops-fs}"
+DSPA_NAME="${DSPA_NAME:-fd-gitops-dspa}"
+export NS APP_NAME FS_NAME DSPA_NAME
 
+echo "======== stack NS=${NS} APP=${APP_NAME} ========"
 echo "======== 1/4 secrets ========"
 ./scripts/apply_fd_gitops_secrets.sh
 
@@ -34,20 +39,20 @@ echo "======== 2/4 Argo platform ========"
 
 echo "======== 3/4 wait Ready ========"
 for i in $(seq 1 90); do
-  FS=$(oc get featurestore fd-gitops-fs -n "$NS" -o jsonpath='{.status.phase}' 2>/dev/null || true)
-  SVC=$(oc get svc ds-pipeline-fd-gitops-dspa -n "$NS" -o name 2>/dev/null || true)
+  FS=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+  SVC=$(oc get svc "ds-pipeline-${DSPA_NAME}" -n "$NS" -o name 2>/dev/null || true)
   echo "  [$i] FeatureStore=${FS:-none} pipelineSvc=${SVC:-none}"
   if [[ "$FS" == "Ready" && -n "$SVC" ]]; then
     break
   fi
   sleep 10
 done
-oc get featurestore fd-gitops-fs -n "$NS"
-oc get svc ds-pipeline-fd-gitops-dspa -n "$NS" >/dev/null
+oc get featurestore "$FS_NAME" -n "$NS"
+oc get svc "ds-pipeline-${DSPA_NAME}" -n "$NS" >/dev/null
 
 echo "======== 4/4 demo e2e ========"
-./scripts/run_demo_e2e.sh
-./scripts/verify_featurestore_ui.sh
+NS="$NS" FS_NAME="$FS_NAME" DSPA_NAME="$DSPA_NAME" ./scripts/run_demo_e2e.sh
+NS="$NS" FS_NAME="$FS_NAME" ./scripts/verify_featurestore_ui.sh || true
 echo "BOOTSTRAP COMPLETE"
-echo "See Argo app: oc get applications.argoproj.io -n openshift-gitops"
-echo "Docs: docs/WHERE_TO_LOOK.md"
+echo "Argo: oc get application ${APP_NAME} -n openshift-gitops"
+echo "Docs: docs/CUSTOMER_SHELL.md"

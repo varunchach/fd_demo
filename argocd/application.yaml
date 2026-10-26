@@ -1,6 +1,9 @@
-# Generic Argo Application — NO site hosts/buckets in Git.
-# After secrets, run:  ./scripts/configure_argo_site.sh
-# That patches helm.parameters from your env (FEAST_BUCKET, PIPELINE_BUCKET, AWS_S3_ENDPOINT).
+# Default stack (NS=fd-gitops). Prefer:
+#   export NS=fd-cust APP_NAME=fd-cust
+#   ./scripts/configure_argo_site.sh
+# which renders application.yaml.tpl (supports any NS / APP_NAME).
+#
+# Applying this file creates/updates ONLY the fd-gitops Application.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -42,11 +45,9 @@ spec:
     helm:
       valueFiles:
         - values.yaml
-      # parameters injected at runtime by scripts/configure_argo_site.sh
   destination:
     server: https://kubernetes.default.svc
     namespace: fd-gitops
-  # Ignore operator-owned status noise so Healthy stays stable
   ignoreDifferences:
     - group: datasciencepipelinesapplications.opendatahub.io
       kind: DataSciencePipelinesApplication
@@ -70,4 +71,3 @@ spec:
         duration: 30s
         factor: 2
         maxDuration: 5m
-
