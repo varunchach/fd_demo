@@ -27,6 +27,28 @@ Example for a customer fork:
 If `featureStore.cloneFeatureRepo=true` and `git.repoURL` is empty, Helm fails on purpose
 so a demo URL cannot silently ship into the client cluster.
 
+### Private GitHub repos (clone auth)
+
+Feast pods clone over HTTPS with **no TTY**, so a private fork fails with
+`could not read Username for 'https://github.com'`. Create a PAT secret and wire it:
+
+```bash
+oc create secret generic fd-gitops-feast-git -n fd-cust-trial \
+  --from-literal=token='<github_pat_with_repo_read>'
+```
+
+Argo Helm parameters:
+
+```yaml
+- name: git.tokenSecret
+  value: "fd-gitops-feast-git"
+- name: git.tokenSecretKey
+  value: "token"
+```
+
+The chart injects Feast `env` + `configs` `insteadOf` so clone uses
+`https://x-access-token:${TOKEN}@github.com/...` without putting the token in Git.
+
 ## NetworkPolicy (required on locked-down client NS)
 
 If the namespace has NetworkPolicies (`allow-same-namespace`, DSPA rules, …),

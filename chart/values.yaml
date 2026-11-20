@@ -19,6 +19,13 @@ git:
   repoURL: ""
   revision: main
   featureRepoPath: feature_repo
+  # Private repos: create Secret with a PAT, then set tokenSecret (Argo Helm param).
+  #   oc create secret generic fd-gitops-feast-git -n <ns> --from-literal=token=<PAT>
+  #   helm: git.tokenSecret=fd-gitops-feast-git
+  tokenSecret: ""
+  tokenSecretKey: token
+  # Git config insteadOf host (GitHub.com). For GHES/GitLab, override via Argo.
+  authInsteadOfHost: github.com
 
 pipelines:
   enabled: true

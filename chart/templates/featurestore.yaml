@@ -31,6 +31,17 @@ spec:
       url: {{ .Values.git.repoURL | quote }}
       ref: {{ .Values.git.revision | default "main" | quote }}
       featureRepoPath: {{ .Values.git.featureRepoPath | default "feature_repo" | quote }}
+{{- if .Values.git.tokenSecret }}
+      env:
+        - name: TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.git.tokenSecret | quote }}
+              key: {{ .Values.git.tokenSecretKey | default "token" | quote }}
+      configs:
+        {{- $host := .Values.git.authInsteadOfHost | default "github.com" }}
+        url."https://x-access-token:${TOKEN}@{{ $host }}/".insteadOf: {{ printf "https://%s/" $host | quote }}
+{{- end }}
 {{- end }}
   authz:
     noAuth: true
