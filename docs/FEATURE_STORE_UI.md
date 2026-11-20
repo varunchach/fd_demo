@@ -1,5 +1,29 @@
 # Feature Store visibility in RHOAI 3.5
 
+## NetworkPolicy (required on locked-down client NS)
+
+If the namespace has NetworkPolicies (`allow-same-namespace`, DSPA rules, …),
+the RHOAI dashboard in `redhat-ods-applications` cannot reach Feast registry REST
+unless allowed. The chart deploys `allow-rhods-dashboard-to-feast` (ports **6573** /
+**6571** on pods labeled `feast.dev/name=<featureStore.name>`). Without it the UI
+Overview stays empty and `verify_featurestore_ui.sh` times out even when the CR is Ready.
+
+## Credentials (client-owned — do not hardcode)
+
+The chart never embeds Postgres host/port/password or S3 keys. It only
+**references** the fixed secret names the client already creates:
+
+| Secret | Purpose | Contents |
+| --- | --- | --- |
+| `fd-gitops-feast-pg` | Online store | `feature_store.yaml` (`host`, `port`, `database`, `user`, `password`, …) |
+| `fd-gitops-feast-s3` | Offline / registry / UI | `AWS_*` keys and endpoint |
+| `fd-gitops-pipeline-s3` | Pipelines artifacts | `AWS_*` keys and endpoint |
+
+Create or refresh them with `./scripts/apply_fd_gitops_secrets.sh` using the client's
+`PG_*` and `AWS_*` exports (port is required from the client — no default).
+Do **not** rename these secrets: the FeatureStore CR `secretRef` names match them
+so Feast picks up client credentials automatically.
+
 The Argo Application selects whether its FeatureStore appears in the dashboard.
 Only one FeatureStore should have `feature-store-ui=enabled`.
 
@@ -74,3 +98,4 @@ With Helm 3, Python 3 and PyYAML installed, run `python3 -m unittest discover -s
 These tests render Helm locally and use a fake `oc`; they do not access a cluster.
 
 Reference: [Red Hat OpenShift AI 3.5: Set up the Feature Store UI](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/working_with_machine_learning_features/overview-of-ml-features-and-feature-store.adoc_featurestore).
+

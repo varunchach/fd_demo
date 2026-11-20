@@ -39,8 +39,8 @@ spec:
           secretRef:
             name: {{ .Values.featureStore.onlinePostgresSecret }}
           secretKeyName: {{ .Values.featureStore.onlinePostgresSecretKey }}
-      server:
 {{- if not $useLocalReg }}
+      server:
         envFrom:
           - secretRef:
               name: {{ .Values.featureStore.offlineS3Secret }}
@@ -53,6 +53,8 @@ spec:
             value: WHEN_REQUIRED
           - name: AWS_RESPONSE_CHECKSUM_VALIDATION
             value: WHEN_REQUIRED
+{{- else }}
+      server: {}
 {{- end }}
     offlineStore:
       persistence:
@@ -80,8 +82,8 @@ spec:
           file:
             path: {{ $registryPath | quote }}
     # UI also reads registry from S3 — must have the same credentials (NoCredentialsError otherwise)
-    ui:
 {{- if not $useLocalReg }}
+    ui:
       envFrom:
         - secretRef:
             name: {{ .Values.featureStore.offlineS3Secret }}
@@ -94,5 +96,8 @@ spec:
           value: WHEN_REQUIRED
         - name: AWS_RESPONSE_CHECKSUM_VALIDATION
           value: WHEN_REQUIRED
+{{- else }}
+    ui: {}
 {{- end }}
 {{- end }}
+

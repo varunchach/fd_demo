@@ -1,0 +1,29 @@
+{{- if and .Values.featureStore.enabled .Values.featureStore.uiEnabled (.Values.featureStore.allowDashboardNetworkPolicy | default true) }}
+# Allow RHOAI dashboard (redhat-ods-applications) to reach Feast registry REST/gRPC.
+# Client namespaces often isolate pods via NetworkPolicy; without this the Feature Store
+# UI times out even when the FeatureStore CR is Ready.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rhods-dashboard-to-feast
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  podSelector:
+    matchLabels:
+      feast.dev/name: {{ .Values.featureStore.name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.featureStore.dashboardNamespace | default "redhat-ods-applications" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.featureStore.registryRestPort | default 6573 }}
+        - protocol: TCP
+          port: {{ .Values.featureStore.registryGrpcPort | default 6571 }}
+{{- end }}
+

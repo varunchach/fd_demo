@@ -43,7 +43,9 @@ featureStore:
   uiEnabled: true
   name: fd-gitops-fs
   feastProject: fd_gitops
-  # Always PostgreSQL for online store.
+  # Online Postgres + S3: do NOT put host/port/password/keys here.
+  # Client supplies them via existing secret names (apply_fd_gitops_secrets.sh).
+  # Feast operator reads feature_store.yaml / AWS_* from those secrets as-is.
   onlinePostgresSecret: fd-gitops-feast-pg
   onlinePostgresSecretKey: feature_store.yaml
   offlineS3Secret: fd-gitops-feast-s3
@@ -52,6 +54,11 @@ featureStore:
   registryS3Path: ""
   cloneFeatureRepo: true
   localRegistry: false
+  # RHOAI Feature Store UI: dashboard NS must reach Feast registry (pod ports).
+  allowDashboardNetworkPolicy: true
+  dashboardNamespace: redhat-ods-applications
+  registryRestPort: 6573
+  registryGrpcPort: 6571
 
 # OFF by default — never block Argo sync with demo Jobs
 hooks:
@@ -70,3 +77,4 @@ hooks:
 
 storage:
   pipelineArtifactsSecret: fd-gitops-pipeline-s3
+
