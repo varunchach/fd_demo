@@ -63,6 +63,7 @@ FEATURE_REFS = [
     f"{FEATURE_VIEW}:pin_authenticated",
     f"{FEATURE_VIEW}:ecommerce_channel",
     f"{FEATURE_VIEW}:known_merchant_repeat",
+    f"{FEATURE_VIEW}:txn_velocity_1h",
 ]
 
 store = FeatureStore(repo_path=str(REPO))
@@ -89,3 +90,4 @@ dataset = store.create_saved_dataset(
 print("feature_services", [fs.name for fs in store.list_feature_services()])
 print("saved_dataset", dataset.name)
 print("datasets", [d.name for d in store.list_saved_datasets()])
+

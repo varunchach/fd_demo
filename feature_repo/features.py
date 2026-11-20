@@ -32,7 +32,7 @@ fraud_txn_risk_signals = FeatureView(
     ttl=timedelta(days=3650),
     description=(
         "Card-fraud risk signals for one transaction: geo jump, spend anomaly, "
-        "chip/PIN, e-commerce channel, and merchant familiarity"
+        "chip/PIN, e-commerce channel, merchant familiarity, and 1h velocity"
     ),
     tags={"domain": "fraud", "use_case": "card_transaction_scoring"},
     schema=[
@@ -66,6 +66,11 @@ fraud_txn_risk_signals = FeatureView(
             dtype=Int64,
             description="1 = customer has shopped this merchant before. 0 = first time.",
         ),
+        Field(
+            name="txn_velocity_1h",
+            dtype=Int64,
+            description="Count of card txns in the last 1 hour. Burst velocity → stolen-card testing.",
+        ),
     ],
     source=transaction_source,
 )
@@ -76,3 +81,4 @@ fraud_scoring_service = FeatureService(
     description="Online feature bundle for fraud model training and real-time scoring",
     tags={"pipeline": "fd-gitops", "consumer": "kfp_train"},
 )
+

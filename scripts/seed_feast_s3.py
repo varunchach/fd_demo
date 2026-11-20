@@ -16,6 +16,7 @@ FEATURE_NAMES = [
     "pin_authenticated",
     "ecommerce_channel",
     "known_merchant_repeat",
+    "txn_velocity_1h",
 ]
 
 
@@ -41,6 +42,11 @@ def build_demo_transactions(n_samples: int = 100, seed: int = 42) -> pd.DataFram
         0,
     )
     known = np.where(fraud, 0, (rng.random(n_samples) < 0.7).astype(int))
+    velocity = np.where(
+        fraud,
+        rng.integers(8, 25, n_samples),
+        rng.integers(1, 4, n_samples),
+    )
     return pd.DataFrame(
         {
             "geo_distance_from_last_txn": geo.astype("float32"),
@@ -49,6 +55,7 @@ def build_demo_transactions(n_samples: int = 100, seed: int = 42) -> pd.DataFram
             "pin_authenticated": pin.astype("int64"),
             "ecommerce_channel": ecommerce.astype("int64"),
             "known_merchant_repeat": known.astype("int64"),
+            "txn_velocity_1h": velocity.astype("int64"),
             "fraud": fraud.astype("int64"),
         }
     )
@@ -94,3 +101,4 @@ print(
     "sample_means",
     {c: float(offline[c].mean()) for c in FEATURE_NAMES},
 )
+

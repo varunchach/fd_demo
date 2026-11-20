@@ -11,6 +11,7 @@ These are the features clients see under **Feature Store** (not Feast’s sample
 | **pin_authenticated** | 0/1 | 1 = PIN OK; 0 = no PIN | PIN verified. Supports legitimate cardholder present. |
 | **ecommerce_channel** | 0/1 | 1 = online; 0 = in-store | Online order. Higher card-not-present fraud exposure. |
 | **known_merchant_repeat** | 0/1 | 1 = seen before; 0 = first-time | Customer has used this merchant before. First-time merchants add risk. |
+| **txn_velocity_1h** | int | count · typical 1–3; ≥8 burst | Card txns in the last hour. Burst velocity → stolen-card testing. |
 
 **Feature view:** `fraud_txn_risk_signals` — risk signals at transaction time  
 **Feature service:** `fraud_scoring_service` — what the KFP pipeline pulls for train/score  
@@ -19,3 +20,4 @@ These are the features clients see under **Feature Store** (not Feast’s sample
 Offline: S3 parquet · Online: PostgreSQL · Registry: S3 (customer) / local (lab until seeded)
 
 Demo seed (`scripts/seed_feast_s3.py`) generates **interpretable** values in these units (not random Gaussian blobs), so Feature Store samples and dashboards read as a real fraud scorecard.
+

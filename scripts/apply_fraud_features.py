@@ -27,6 +27,7 @@ ecommerce = np.where(fraud, 1, (rng.random(n) < 0.35).astype(int))
 chip = np.where(ecommerce == 1, 0, (rng.random(n) < 0.85).astype(int))
 pin = np.where((chip == 1) & (ecommerce == 0), (rng.random(n) < 0.9).astype(int), 0)
 known = np.where(fraud, 0, (rng.random(n) < 0.7).astype(int))
+velocity = np.where(fraud, rng.integers(8, 25, n), rng.integers(1, 4, n))
 now = datetime.now(timezone.utc)
 df = pd.DataFrame(
     {
@@ -38,6 +39,7 @@ df = pd.DataFrame(
         "pin_authenticated": pin.astype("int64"),
         "ecommerce_channel": ecommerce.astype("int64"),
         "known_merchant_repeat": known.astype("int64"),
+        "txn_velocity_1h": velocity.astype("int64"),
     }
 )
 parquet = data / "transactions.parquet"
@@ -66,6 +68,7 @@ fraud_txn_risk_signals = FeatureView(
         Field(name="pin_authenticated", dtype=Int64, description="1=PIN OK"),
         Field(name="ecommerce_channel", dtype=Int64, description="1=online"),
         Field(name="known_merchant_repeat", dtype=Int64, description="1=known merchant"),
+        Field(name="txn_velocity_1h", dtype=Int64, description="txns in last 1 hour"),
     ],
     source=transaction_source,
 )
@@ -98,6 +101,7 @@ fraud_txn_risk_signals = FeatureView(
         Field(name="pin_authenticated", dtype=Int64, description="1=PIN OK"),
         Field(name="ecommerce_channel", dtype=Int64, description="1=online"),
         Field(name="known_merchant_repeat", dtype=Int64, description="1=known merchant"),
+        Field(name="txn_velocity_1h", dtype=Int64, description="txns in last 1 hour"),
     ],
     source=transaction_source,
 )
@@ -114,3 +118,4 @@ store.apply([transaction, fraud_txn_risk_signals, fraud_scoring_service])
 print("views", [v.name for v in store.list_feature_views()])
 print("services", [s.name for s in store.list_feature_services()])
 print("features", [f.name for f in fraud_txn_risk_signals.features])
+

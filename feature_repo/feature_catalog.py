@@ -20,6 +20,7 @@ FEATURE_NAMES: Final[list[str]] = [
     "pin_authenticated",  # 1 = PIN verified
     "ecommerce_channel",  # 1 = online / CNP
     "known_merchant_repeat",  # 1 = merchant seen before
+    "txn_velocity_1h",  # txns in last 1 hour
 ]
 
 FEATURE_REFS: Final[list[str]] = [f"{FEATURE_VIEW}:{n}" for n in FEATURE_NAMES]
@@ -56,6 +57,11 @@ FEATURE_META: Final[dict[str, dict[str, str]]] = {
         "typical": "1 seen before; 0 first-time merchant",
         "risk_signal": "New merchants add unfamiliarity risk",
     },
+    "txn_velocity_1h": {
+        "unit": "count",
+        "typical": "1–3 normal; ≥8 burst",
+        "risk_signal": "High 1h velocity → card testing / rapid fraud",
+    },
 }
 
 
@@ -86,6 +92,11 @@ def build_demo_transactions(n_samples: int = 100, seed: int = 42):
         0,
     )
     known = np.where(fraud, 0, (rng.random(n_samples) < 0.7).astype(int))
+    velocity = np.where(
+        fraud,
+        rng.integers(8, 25, n_samples),  # burst / card-testing
+        rng.integers(1, 4, n_samples),  # normal hourly activity
+    )
 
     df = pd.DataFrame(
         {
@@ -95,7 +106,9 @@ def build_demo_transactions(n_samples: int = 100, seed: int = 42):
             "pin_authenticated": pin.astype("int64"),
             "ecommerce_channel": ecommerce.astype("int64"),
             "known_merchant_repeat": known.astype("int64"),
+            "txn_velocity_1h": velocity.astype("int64"),
             "fraud": fraud.astype("int64"),
         }
     )
     return df
+

@@ -17,6 +17,7 @@ FEATURE_REFS = [
     f"{FEATURE_VIEW}:pin_authenticated",
     f"{FEATURE_VIEW}:ecommerce_channel",
     f"{FEATURE_VIEW}:known_merchant_repeat",
+    f"{FEATURE_VIEW}:txn_velocity_1h",
 ]
 
 REPO = Path("/feast-data/fraud_detection/feature_repo")
@@ -64,3 +65,4 @@ dataset = store.create_saved_dataset(
 )
 print("saved_dataset", dataset.name)
 print("datasets", [d.name for d in store.list_saved_datasets()])
+
