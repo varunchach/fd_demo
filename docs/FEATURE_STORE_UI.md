@@ -30,11 +30,29 @@ so a demo URL cannot silently ship into the client cluster.
 ### Private GitHub repos (clone auth)
 
 Feast pods clone over HTTPS with **no TTY**, so a private fork fails with
-`could not read Username for 'https://github.com'`. Create a PAT secret and wire it:
+`could not read Username for 'https://github.com'`.
+
+**Token-only** (no SAML username):
 
 ```bash
 oc create secret generic fd-gitops-feast-git -n fd-cust-trial \
   --from-literal=token='<github_pat_with_repo_read>'
+```
+
+```yaml
+- name: git.tokenSecret
+  value: "fd-gitops-feast-git"
+```
+
+Clone uses `https://x-access-token:${TOKEN}@github.com/...`.
+
+**Username + PAT** (org SAML SSO — authorize the PAT for the org, then):
+
+```bash
+oc create secret generic fd-gitops-feast-git -n fd-cust-trial \
+  --from-literal=token='<github_pat>' \
+  --from-literal=username='<github_username>' \
+  --dry-run=client -o yaml | oc apply -f -
 ```
 
 Argo Helm parameters:
@@ -44,10 +62,18 @@ Argo Helm parameters:
   value: "fd-gitops-feast-git"
 - name: git.tokenSecretKey
   value: "token"
+# Option A — username as Helm param (not secret):
+- name: git.username
+  value: "jane.doe"
+# Option B — username from the same (or another) Secret:
+# - name: git.usernameSecret
+#   value: "fd-gitops-feast-git"
+# - name: git.usernameSecretKey
+#   value: "username"
 ```
 
-The chart injects Feast `env` + `configs` `insteadOf` so clone uses
-`https://x-access-token:${TOKEN}@github.com/...` without putting the token in Git.
+Clone then uses `https://${GIT_USER}:${TOKEN}@github.com/...`.  
+Authorize the PAT for org SSO in GitHub → Settings → Developer settings → PAT → **Configure SSO**.
 
 ## NetworkPolicy (required on locked-down client NS)
 

@@ -32,15 +32,31 @@ spec:
       ref: {{ .Values.git.revision | default "main" | quote }}
       featureRepoPath: {{ .Values.git.featureRepoPath | default "feature_repo" | quote }}
 {{- if .Values.git.tokenSecret }}
+{{- $host := .Values.git.authInsteadOfHost | default "github.com" }}
+{{- $useUser := or .Values.git.username .Values.git.usernameSecret }}
       env:
         - name: TOKEN
           valueFrom:
             secretKeyRef:
               name: {{ .Values.git.tokenSecret | quote }}
               key: {{ .Values.git.tokenSecretKey | default "token" | quote }}
+{{- if .Values.git.usernameSecret }}
+        - name: GIT_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.git.usernameSecret | quote }}
+              key: {{ .Values.git.usernameSecretKey | default "username" | quote }}
+{{- else if .Values.git.username }}
+        - name: GIT_USER
+          value: {{ .Values.git.username | quote }}
+{{- end }}
       configs:
-        {{- $host := .Values.git.authInsteadOfHost | default "github.com" }}
+{{- if $useUser }}
+        # SAML / org SSO: authenticate as GitHub username + PAT (password).
+        url."https://${GIT_USER}:${TOKEN}@{{ $host }}/".insteadOf: {{ printf "https://%s/" $host | quote }}
+{{- else }}
         url."https://x-access-token:${TOKEN}@{{ $host }}/".insteadOf: {{ printf "https://%s/" $host | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
   authz:
