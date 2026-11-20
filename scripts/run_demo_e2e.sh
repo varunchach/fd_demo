@@ -53,7 +53,14 @@ oc get svc "${SVC}" -n "${NS}" >/dev/null
 
 echo "==> seed offline parquet"
 oc delete job fd-gitops-seed-offline-manual -n "${NS}" --ignore-not-found
+# Prefer live FeatureStore git URL (set via Helm git.repoURL) — never bake a demo GitHub URL.
+GIT_REPO_URL="${FEAST_GIT_REPO_URL:-$(oc get featurestore "${FS_NAME}" -n "${NS}" -o jsonpath='{.spec.feastProjectDir.git.url}' 2>/dev/null || true)}"
+GIT_REVISION="${FEAST_GIT_REVISION:-$(oc get featurestore "${FS_NAME}" -n "${NS}" -o jsonpath='{.spec.feastProjectDir.git.ref}' 2>/dev/null || true)}"
+GIT_REVISION="${GIT_REVISION:-main}"
+: "${GIT_REPO_URL:?set FEAST_GIT_REPO_URL or ensure FeatureStore has feastProjectDir.git.url}"
 sed -e "s|PLACEHOLDER_S3_PREFIX|${S3_PREFIX}|g" \
+  -e "s|PLACEHOLDER_GIT_REPO_URL|${GIT_REPO_URL}|g" \
+  -e "s|PLACEHOLDER_GIT_REVISION|${GIT_REVISION}|g" \
   "${ROOT}/feature_repo/seed-s3-job.yaml" | oc apply -n "${NS}" -f -
 oc wait -n "${NS}" --for=condition=complete job/fd-gitops-seed-offline-manual --timeout=300s
 oc logs -n "${NS}" -l job-name=fd-gitops-seed-offline-manual --tail=20
@@ -141,3 +148,4 @@ oc logs -n "${NS}" -l job-name=fd-gitops-submit-manual --tail=40
 echo "==> workflows"
 oc get workflow -n "${NS}" 2>/dev/null || oc get workflows.argoproj.io -n "${NS}" 2>/dev/null || true
 echo "DONE. Watch: oc get workflow -n ${NS} -w"
+

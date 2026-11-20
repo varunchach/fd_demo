@@ -1,5 +1,32 @@
 # Feature Store visibility in RHOAI 3.5
 
+## Git URL (customer fork — not hardcoded in templates)
+
+Feast `cloneFeatureRepo` uses Helm values, not a baked-in GitHub URL:
+
+| Helm parameter | Purpose |
+| --- | --- |
+| `git.repoURL` | Git remote Feast clones for `feature_repo` (**required**) |
+| `git.revision` | Branch / tag / SHA |
+| `git.featureRepoPath` | Path inside the repo (default `feature_repo`) |
+
+Set them on the Argo Application (same place as S3 params).  
+`configure_argo_site.sh` sets `git.repoURL` / `git.revision` from the Application’s
+own `spec.source.repoURL` / `targetRevision`, or from `FEAST_GIT_REPO_URL` /
+`FEAST_GIT_REVISION` when you need Feast to clone a different remote than the chart.
+
+Example for a customer fork:
+
+```yaml
+- name: git.repoURL
+  value: "https://git.customer.example/org/fd_demo.git"
+- name: git.revision
+  value: "main"
+```
+
+If `featureStore.cloneFeatureRepo=true` and `git.repoURL` is empty, Helm fails on purpose
+so a demo URL cannot silently ship into the client cluster.
+
 ## NetworkPolicy (required on locked-down client NS)
 
 If the namespace has NetworkPolicies (`allow-same-namespace`, DSPA rules, …),

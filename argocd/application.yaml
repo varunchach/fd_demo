@@ -39,12 +39,18 @@ metadata:
 spec:
   project: default
   source:
+    # Prefer application.yaml.tpl + configure_argo_site.sh for customer forks.
     repoURL: https://github.com/varunchach/fd_demo.git
     targetRevision: main
     path: chart
     helm:
       valueFiles:
         - values.yaml
+      parameters:
+        - name: git.repoURL
+          value: https://github.com/varunchach/fd_demo.git
+        - name: git.revision
+          value: main
   destination:
     server: https://kubernetes.default.svc
     namespace: fd-gitops
@@ -71,3 +77,4 @@ spec:
         duration: 30s
         factor: 2
         maxDuration: 5m
+

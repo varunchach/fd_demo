@@ -35,12 +35,19 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/varunchach/fd_demo.git
-    targetRevision: main
+    # Replaced by configure_argo_site.sh (__GIT_REPO_URL__ / __GIT_REVISION__).
+    # Customer fork URL — also set as Helm param git.repoURL so Feast clones the same repo.
+    repoURL: __GIT_REPO_URL__
+    targetRevision: __GIT_REVISION__
     path: chart
     helm:
       valueFiles:
         - values.yaml
+      parameters:
+        - name: git.repoURL
+          value: __GIT_REPO_URL__
+        - name: git.revision
+          value: __GIT_REVISION__
   destination:
     server: https://kubernetes.default.svc
     namespace: __NS__
@@ -67,3 +74,4 @@ spec:
         duration: 30s
         factor: 2
         maxDuration: 5m
+

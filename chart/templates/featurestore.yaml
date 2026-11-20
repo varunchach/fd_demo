@@ -23,11 +23,14 @@ metadata:
 spec:
   feastProject: {{ .Values.featureStore.feastProject }}
 {{- if .Values.featureStore.cloneFeatureRepo }}
+{{- if not .Values.git.repoURL }}
+{{- fail "git.repoURL is required when featureStore.cloneFeatureRepo=true (set Argo param git.repoURL to the customer fork)" }}
+{{- end }}
   feastProjectDir:
     git:
-      url: {{ .Values.git.repoURL }}
-      ref: {{ .Values.git.revision }}
-      featureRepoPath: feature_repo
+      url: {{ .Values.git.repoURL | quote }}
+      ref: {{ .Values.git.revision | default "main" | quote }}
+      featureRepoPath: {{ .Values.git.featureRepoPath | default "feature_repo" | quote }}
 {{- end }}
   authz:
     noAuth: true

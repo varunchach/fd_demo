@@ -22,6 +22,7 @@ class FeatureStoreUI(unittest.TestCase):
             "--set", "featureStore.offlineS3Prefix=fd-cust-trial/features",
             "--set", "pipelines.s3Host=s3.example.test",
             "--set", "pipelines.s3Bucket=pipelines",
+            "--set", "git.repoURL=https://github.com/example/fd_demo.git",
             *extra,
         ]
         return subprocess.run(command, capture_output=True, text=True)
@@ -33,15 +34,35 @@ class FeatureStoreUI(unittest.TestCase):
         self.assertEqual(disabled.returncode, 0, disabled.stderr)
         on = [d for d in yaml.safe_load_all(enabled.stdout) if d]
         off = [d for d in yaml.safe_load_all(disabled.stdout) if d]
-        fs = next(d for d in on if d["kind"] == "FeatureStore")
-        self.assertEqual(fs["metadata"].pop("labels"), {"feature-store-ui": "enabled"})
-        self.assertEqual(on, off)  # Storage, services, pipelines and namespace do not change.
-        self.assertTrue(fs["spec"]["services"]["registry"]["local"]["server"]["restAPI"])
+        fs_on = next(d for d in on if d["kind"] == "FeatureStore")
+        fs_off = next(d for d in off if d["kind"] == "FeatureStore")
+        self.assertEqual(fs_on["metadata"].pop("labels"), {"feature-store-ui": "enabled"})
+        self.assertNotIn("labels", fs_off.get("metadata", {}))
+        # NetworkPolicy is only rendered when uiEnabled; FeatureStore body stays the same.
+        self.assertEqual(fs_on["spec"], fs_off["spec"])
+        self.assertTrue(any(d["kind"] == "NetworkPolicy" for d in on))
+        self.assertFalse(any(d.get("kind") == "NetworkPolicy" for d in off))
+        self.assertTrue(fs_on["spec"]["services"]["registry"]["local"]["server"]["restAPI"])
 
     def test_boolean_string_is_rejected(self):
         result = self.render("--set-string", "featureStore.uiEnabled=false")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("uiEnabled", result.stderr)
+
+    def test_git_repo_url_required_when_cloning(self):
+        result = self.render("--set", "git.repoURL=")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("git.repoURL", result.stderr)
+
+    def test_feast_clone_uses_helm_git_repo_url(self):
+        result = self.render("--set", "git.repoURL=https://git.customer.example/fd.git")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        docs = [d for d in yaml.safe_load_all(result.stdout) if d]
+        fs = next(d for d in docs if d["kind"] == "FeatureStore")
+        self.assertEqual(
+            fs["spec"]["feastProjectDir"]["git"]["url"],
+            "https://git.customer.example/fd.git",
+        )
 
     def setup_script(self, existing, ui=None, lookup_fails=False, namespace="fd-cust-trial", new=False):
         with tempfile.TemporaryDirectory() as directory:
@@ -153,3 +174,4 @@ if args[0] == "get":
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -10,9 +10,15 @@
 # Demo path after Ready: ./scripts/run_demo_e2e.sh
 # =============================================================================
 
+# Feast cloneFeatureRepo + hook Jobs use these — NEVER bake the client fork into templates.
+# Override in Argo Helm parameters (required for customer forks):
+#   git.repoURL, git.revision, git.featureRepoPath
+# configure_argo_site.sh sets git.repoURL from the Application's own source.repoURL
+# unless FEAST_GIT_REPO_URL is exported.
 git:
-  repoURL: https://github.com/varunchach/fd_demo.git
+  repoURL: ""
   revision: main
+  featureRepoPath: feature_repo
 
 pipelines:
   enabled: true

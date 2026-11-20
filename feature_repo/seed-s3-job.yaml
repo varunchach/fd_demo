@@ -1,5 +1,5 @@
-# Manual seed Job. Apply with: oc apply -n "$NS" -f feature_repo/seed-s3-job.yaml
-# Set FEAST_S3_PREFIX to match FeatureStore offline prefix (default ${NS}/features).
+# Manual seed Job. Prefer: NS=... ./scripts/run_demo_e2e.sh (substitutes URL from FeatureStore).
+# Or export FEAST_GIT_REPO_URL / FEAST_GIT_REVISION / FEAST_S3_PREFIX before oc apply.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -15,7 +15,16 @@ spec:
           image: alpine/git:2.45.2
           command: ["sh", "-c"]
           args:
-            - git clone --depth 1 --branch main https://github.com/varunchach/fd_demo.git /repo
+            - |
+              set -euo pipefail
+              : "${FEAST_GIT_REPO_URL:?set FEAST_GIT_REPO_URL to the feature repo git URL}"
+              git clone --depth 1 --branch "${FEAST_GIT_REVISION:-main}" \
+                "${FEAST_GIT_REPO_URL}" /repo
+          env:
+            - name: FEAST_GIT_REPO_URL
+              value: PLACEHOLDER_GIT_REPO_URL
+            - name: FEAST_GIT_REVISION
+              value: PLACEHOLDER_GIT_REVISION
           volumeMounts:
             - name: repo
               mountPath: /repo
@@ -42,3 +51,4 @@ spec:
       volumes:
         - name: repo
           emptyDir: {}
+

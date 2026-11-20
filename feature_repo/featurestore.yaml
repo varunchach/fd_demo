@@ -12,7 +12,8 @@ spec:
   feastProject: fraud_detection
   feastProjectDir:
     git:
-      url: https://github.com/varunchach/fd_demo.git
+      # EXAMPLE ONLY — production uses Helm git.repoURL from Argo (not this file).
+      url: REPLACE_WITH_CUSTOMER_GIT_REPO_URL
       ref: main
       featureRepoPath: feature_repo
   authz:
@@ -46,3 +47,4 @@ spec:
           file:
             path: s3://feast-registry/fraud-detection/registry.db
     ui: {}
+

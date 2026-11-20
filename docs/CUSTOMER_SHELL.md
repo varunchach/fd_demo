@@ -40,9 +40,14 @@ export PG_PORT='...'
 export PG_USER='...'
 export PG_PASSWORD='...'
 export PG_DATABASE='fd_gitops'    # or a dedicated DB for this stack
+
+# Optional — Feast feature-repo git remote (defaults to Argo Application source.repoURL)
+# export FEAST_GIT_REPO_URL='https://git.customer.example/org/fd_demo.git'
+# export FEAST_GIT_REVISION='main'
 ```
 
 Use a **dedicated Postgres database** if the old stack already uses one.
+Set Argo Helm `git.repoURL` to the customer fork (see [FEATURE_STORE_UI.md](FEATURE_STORE_UI.md)).
 
 ## Step 3 — Secrets (new namespace only)
 
@@ -103,3 +108,4 @@ oc get workflow -n "$NS"
 | ns `fd-gitops` | ns `$NS` (e.g. `fd-cust`) |
 | Argo app `fd-gitops` | Argo app `$APP_NAME` |
 | (optional wipe) | **no wipe** |
+
