@@ -1,57 +1,94 @@
 #!/usr/bin/env bash
-# Why Feature Store is (or is not) visible in OpenShift AI → Develop & train → Feature Store.
-# RH docs: only ONE cluster FeatureStore may have label feature-store-ui=enabled, and it must be Ready.
+# Read-only checks for RHOAI 3.5 dashboard discovery of this chart's noAuth registry.
+# Run with the same OpenShift account used in the dashboard where possible.
 set -euo pipefail
 
 NS="${NS:-fd-gitops}"
 FS_NAME="${FS_NAME:-fd-gitops-fs}"
+DASHBOARD_NS="${DASHBOARD_NS:-redhat-ods-applications}"
+DASHBOARD_DEPLOYMENT="${DASHBOARD_DEPLOYMENT:-rhods-dashboard}"
 
-echo "======== Feature Store UI visibility ========"
+echo "==> namespace labels"
+for label in dashboard feast; do
+  VALUE=$(oc get namespace "$NS" -o "jsonpath={.metadata.labels.opendatahub\\.io/${label}}")
+  [[ "$VALUE" == "true" ]] || {
+    echo "FAIL: missing opendatahub.io/${label}=true on ${NS}" >&2; exit 1;
+  }
+done
 
-echo "==> 1) feastoperator on DSC"
-FEAST=$(oc get dscdefault default -o jsonpath='{.spec.components.feastoperator.managementState}' 2>/dev/null \
-  || oc get dsc -A -o jsonpath='{range .items[*]}{.spec.components.feastoperator.managementState}{"\n"}{end}' 2>/dev/null \
-  | head -1 || true)
-echo "    feastoperator=${FEAST:-unknown}"
-[[ "${FEAST}" == "Managed" ]] || echo "    WARN: set feastoperator managementState=Managed in DSC"
+echo "==> FeatureStore discovery settings"
+LABEL=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.metadata.labels.feature-store-ui}')
+PROJECT=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.spec.feastProject}')
+READY=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.status.conditions[?(@.type=="Registry")].status}')
+REST_ENABLED=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.spec.services.registry.local.server.restAPI}')
+REGISTRY_HOST=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.status.serviceHostnames.registryRest}')
+TLS_DISABLED=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.spec.services.registry.local.server.tls.disable}')
+NO_AUTH=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.spec.authz.noAuth}')
+[[ "$LABEL" == "enabled" ]] || { echo "FAIL: enable featureStore.uiEnabled in this Argo Application" >&2; exit 1; }
+[[ "$READY" == "True" ]] || { echo "FAIL: Registry condition is ${READY:-missing}" >&2; exit 1; }
+[[ "$REST_ENABLED" == "true" && -n "$REGISTRY_HOST" && -n "$PROJECT" ]] || {
+  echo "FAIL: REST API configuration, service hostname, or Feast project is missing" >&2; exit 1;
+}
+echo "    ${NS}/${FS_NAME}; Feast project=${PROJECT}; registry=${REGISTRY_HOST}"
 
-echo "==> 2) project labels (Data Science Project)"
-oc get ns "$NS" --show-labels | grep -E 'NAME|opendatahub' || true
-oc get ns "$NS" -o jsonpath='{.metadata.labels.opendatahub\.io/dashboard}' | grep -q true \
-  || { echo "    FAIL: missing opendatahub.io/dashboard=true on $NS"; exit 1; }
-echo "    OK dashboard label"
+echo "==> UI-enabled instances (requires cluster-wide list permission)"
+ENABLED=$(oc get featurestore -A -l feature-store-ui=enabled \
+  -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}')
+printf '%s\n' "$ENABLED"
+COUNT=$(printf '%s\n' "$ENABLED" | awk 'NF {n++} END {print n+0}')
+[[ "$COUNT" == "1" ]] || {
+  echo "FAIL: expected one UI-enabled instance, found ${COUNT}. Set featureStore.uiEnabled=false on other Argo Applications." >&2
+  exit 1
+}
 
-echo "==> 3) FeatureStore in project"
-oc get featurestore "$FS_NAME" -n "$NS" -o custom-columns=\
-NAME:.metadata.name,PHASE:.status.phase,UI_LABEL:.metadata.labels.feature-store-ui
-PHASE=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.status.phase}' 2>/dev/null || true)
-LABEL=$(oc get featurestore "$FS_NAME" -n "$NS" -o jsonpath='{.metadata.labels.feature-store-ui}' 2>/dev/null || true)
-[[ "$LABEL" == "enabled" ]] || { echo "    FAIL: need label feature-store-ui=enabled on $FS_NAME"; exit 1; }
-[[ "$PHASE" == "Ready" ]] || { echo "    FAIL: phase=$PHASE (UI stays empty until Ready)"; exit 1; }
-echo "    OK Ready + UI label"
-
-echo "==> 4) ONLY one UI-enabled FeatureStore cluster-wide (RH constraint)"
-oc get featurestore -A -l feature-store-ui=enabled \
-  -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,PHASE:.status.phase
-COUNT=$(oc get featurestore -A -l feature-store-ui=enabled -o name 2>/dev/null | wc -l | tr -d ' ')
-if [[ "${COUNT}" -gt 1 ]]; then
-  echo "    WARN: ${COUNT} instances have feature-store-ui=enabled — dashboard uses one; remove label from extras"
+echo "==> project discovery from the dashboard pod"
+[[ "$NO_AUTH" == "true" ]] || {
+  echo "INCOMPLETE: this probe targets the chart's noAuth registry; an authenticated registry needs an authenticated request." >&2
+  exit 2
+}
+if [[ -z "${DASHBOARD_CONTAINER:-}" ]]; then
+  CONTAINERS=$(oc get deployment "$DASHBOARD_DEPLOYMENT" -n "$DASHBOARD_NS" \
+    -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"\n"}{end}')
+  while IFS= read -r container; do
+    case "$container" in
+      rhods-dashboard|odh-dashboard) DASHBOARD_CONTAINER="$container"; break ;;
+    esac
+  done <<< "$CONTAINERS"
 fi
-OTHER=$(oc get featurestore -A -l feature-store-ui=enabled \
-  -o jsonpath="{range .items[?(@.metadata.namespace!=\"${NS}\")]}{.metadata.namespace}/{.metadata.name} {.status.phase}{'\n'}{end}" 2>/dev/null || true)
-if [[ -n "${OTHER}" ]]; then
-  echo "    WARN: UI label also on other NS (steal/empty UI if Failed):"
-  echo "$OTHER" | sed 's/^/      /'
-fi
+[[ -n "${DASHBOARD_CONTAINER:-}" ]] || {
+  echo "INCOMPLETE: set DASHBOARD_CONTAINER to the dashboard's Node.js container" >&2; exit 2;
+}
+PROTOCOL=https
+[[ "$TLS_DISABLED" == "true" ]] && PROTOCOL=http
+oc exec -i -n "$DASHBOARD_NS" "deployment/${DASHBOARD_DEPLOYMENT}" -c "$DASHBOARD_CONTAINER" -- \
+  node - "${PROTOCOL}://${REGISTRY_HOST}/api/v1/projects" "$PROJECT" <<'JS'
+const url = new URL(process.argv[2]);
+const project = process.argv[3];
+const client = require(url.protocol === 'https:' ? 'https' : 'http');
+// Match the dashboard's registry proxy for this connectivity diagnostic only.
+const request = client.get(url, {rejectUnauthorized: false, timeout: 10000}, response => {
+  let body = '';
+  response.setEncoding('utf8');
+  response.on('data', chunk => { body += chunk; });
+  response.on('error', error => { console.error('FAIL:', error.message); process.exitCode = 1; });
+  response.on('end', () => {
+    try {
+      if (response.statusCode !== 200) throw new Error(`registry returned HTTP ${response.statusCode}`);
+      const data = JSON.parse(body);
+      const names = (data.projects || []).map(p => p.spec?.name || p.name);
+      if (!names.includes(project)) {
+        throw new Error(`expected project ${project}; registry returned ${JSON.stringify(names)}`);
+      }
+      console.log(`PASS: dashboard can reach the registry and discover ${project}`);
+    } catch (error) {
+      console.error('FAIL:', error.message);
+      process.exitCode = 1;
+    }
+  });
+});
+request.on('timeout', () => request.destroy(new Error('dashboard-to-registry request timed out')));
+request.on('error', error => { console.error('FAIL:', error.message); process.exitCode = 1; });
+JS
 
-echo "==> 5) Feast UI route/pod"
-oc get route,pods -n "$NS" -l "feast.dev/name=${FS_NAME}" 2>/dev/null || \
-  oc get route,pods -n "$NS" | grep -E "feast|NAME" || true
-ROUTE=$(oc get route -n "$NS" -o name 2>/dev/null | grep -i ui | head -1 || true)
-[[ -n "$ROUTE" ]] && echo "    OK $ROUTE" || echo "    WARN: no UI route yet (operator creates after Ready + ui:)"
-
-echo ""
-echo "Dashboard path:"
-echo "  OpenShift AI → Projects → select '${NS}' → Develop & train → Feature Store"
-echo "  (kubeadmin: switch project focus first or the page looks empty)"
-echo "======== UI check done ========"
+echo "Discovery checks passed. Open Develop & train → Feature Store and look for ${PROJECT}."
+echo "Dashboard user access must also allow listing this project and its FeatureStore."

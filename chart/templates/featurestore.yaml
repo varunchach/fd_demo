@@ -14,8 +14,10 @@ kind: FeatureStore
 metadata:
   name: {{ .Values.featureStore.name }}
   namespace: {{ .Release.Namespace }}
+{{- if .Values.featureStore.uiEnabled }}
   labels:
     feature-store-ui: enabled
+{{- end }}
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:

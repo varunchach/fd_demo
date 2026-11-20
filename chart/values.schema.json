@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "featureStore": {
+      "type": "object",
+      "properties": {
+        "uiEnabled": {
+          "type": "boolean",
+          "description": "Enable RHOAI dashboard discovery for this FeatureStore. Enable only one instance."
+        }
+      }
+    }
+  }
+}

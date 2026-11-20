@@ -38,6 +38,9 @@ pipelines:
 
 featureStore:
   enabled: true
+  # RHOAI 3.5: enable dashboard discovery for only one Argo Application.
+  # Set false on other applications; their FeatureStore services remain deployed.
+  uiEnabled: true
   name: fd-gitops-fs
   feastProject: fd_gitops
   # Always PostgreSQL for online store.

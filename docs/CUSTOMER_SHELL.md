@@ -64,11 +64,13 @@ Does **not** delete or sync the old `fd-gitops` app.
 
 Only **one** FeatureStore cluster-wide may have `feature-store-ui=enabled`.
 
-If old stack still has the UI:
+Set the Helm parameter `featureStore.uiEnabled=true` on the chosen Argo Application,
+and `featureStore.uiEnabled=false` on the other applications. All applications must
+use a chart revision containing this setting. Sync through Argo CD after review.
+Do not remove the CR label manually: Argo self-heal restores the Git declaration.
 
-```bash
-oc label featurestore fd-gitops-fs -n fd-gitops feature-store-ui- --overwrite
-```
+When using the setup script, `FEAST_UI_ENABLED=true` or `false` sets this parameter;
+omitting it preserves an existing choice. See [Feature Store UI](FEATURE_STORE_UI.md).
 
 ## Step 6 — Wait Ready
 
